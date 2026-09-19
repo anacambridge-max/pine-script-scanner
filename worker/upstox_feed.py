@@ -19,6 +19,7 @@ class UpstoxV3Feed:
 
         self._sdk = upstox_client
         self.access_token = access_token
+        self.instrument_keys = list(instrument_keys)
         cfg = upstox_client.Configuration()
         cfg.access_token = access_token
         self.streamer = upstox_client.MarketDataStreamerV3(
@@ -86,15 +87,7 @@ class UpstoxV3Feed:
             "Authorization": f"Bearer {self.access_token}",
         }
 
-        for index, instrument_key in enumerate(self._bars.keys()):
-            pass
-
-        instrument_keys = list(self.streamer.instrument_keys) if hasattr(self.streamer, "instrument_keys") else []
-        if not instrument_keys:
-            # SDK versions differ; recover keys from the private object when available.
-            instrument_keys = getattr(self.streamer, "_instrument_keys", [])
-
-        for index, instrument_key in enumerate(instrument_keys):
+        for index, instrument_key in enumerate(self.instrument_keys):
             encoded = requests.utils.quote(instrument_key, safe="")
             url = (
                 f"https://api.upstox.com/v3/historical-candle/{encoded}/minutes/1/"
