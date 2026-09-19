@@ -2,9 +2,12 @@ services:
   - type: worker
     name: prime-technical-worker
     runtime: python
+    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: python -m worker.scanner_worker
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
       - key: UPSTOX_ACCESS_TOKEN
         sync: false
       - key: UPSTOX_API_KEY
