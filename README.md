@@ -26,6 +26,9 @@ Vercel is intentionally not used for a persistent broker WebSocket. The worker i
 ## Current implementation
 
 - Broker-neutral OHLCV signal engine.
+- Upstox V3 WebSocket full-feed adapter with live 1-minute OHLC normalization.
+- Historical 1-minute and daily seeding before live scanning.
+- Persistent day-scoped BUY/SELL CONFIRMED deduplication.
 - 1m / 3m / 5m timeframe enforcement.
 - Asia/Kolkata session handling.
 - PDH/PDL, weekly, monthly, 52-week and ATH/ATL levels.
