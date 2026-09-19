@@ -79,18 +79,32 @@ class PrimeEngine:
         pdh = float(d.high[d.timestamp.dt.date == prev_day].max()) if not d.empty else math.nan
         pdl = float(d.low[d.timestamp.dt.date == prev_day].min()) if not d.empty else math.nan
 
-        prior_week = x[x.timestamp.dt.to_period("W-SUN") < ts.to_period("W-SUN")]
-        prior_month = x[x.timestamp.dt.to_period("M") < ts.to_period("M")]
-        weekly_high = float(prior_week.high.max()) if not prior_week.empty else math.nan
-        weekly_low = float(prior_week.low.min()) if not prior_week.empty else math.nan
-        monthly_high = float(prior_month.high.max()) if not prior_month.empty else math.nan
-        monthly_low = float(prior_month.low.min()) if not prior_month.empty else math.nan
+        # Use timezone-naive local timestamps for calendar grouping/comparison.
+        # This avoids pandas PeriodArray timezone warnings/errors on recent pandas.
+        local_ts = x["timestamp"].dt.tz_localize(None)
+        current_week = ts.tz_localize(None).to_period("W-SUN")
+        current_month = ts.tz_localize(None).to_period("M")
+        week_periods = local_ts.dt.to_period("W-SUN")
+        month_periods = local_ts.dt.to_period("M")
+
+        prior_week = x[week_periods < current_week]
+        prior_month = x[month_periods < current_month]
+        weekly_high = float(prior_week["high"].max()) if not prior_week.empty else math.nan
+        weekly_low = float(prior_week["low"].min()) if not prior_week.empty else math.nan
+        monthly_high = float(prior_month["high"].max()) if not prior_month.empty else math.nan
+        monthly_low = float(prior_month["low"].min()) if not prior_month.empty else math.nan
 
         # Pine's weekly 52-period highest/lowest and daily 5000-bar extremes
         # are represented from the available pre-current-period history.
-        weeks = prior_week.groupby(prior_week.timestamp.dt.to_period("W-SUN"))
-        weekly_hi = weeks.high.max().tail(52).max() if len(weeks) else math.nan
-        weekly_lo = weeks.low.min().tail(52).min() if len(weeks) else math.nan
+        prior_week_periods = week_periods.loc[prior_week.index]
+        weekly_hi = (
+            prior_week.groupby(prior_week_periods)["high"].max().tail(52).max()
+            if not prior_week.empty else math.nan
+        )
+        weekly_lo = (
+            prior_week.groupby(prior_week_periods)["low"].min().tail(52).min()
+            if not prior_week.empty else math.nan
+        )
         hist = d
         ath = float(hist.high.max()) if not hist.empty else math.nan
         atl = float(hist.low.min()) if not hist.empty else math.nan
