@@ -308,8 +308,12 @@ class PrimeEngine:
         if self.cfg.signal_mode == "QUALITY PRIME":
             standard_bull &= strong_bull and range_expanded
             standard_bear &= strong_bear and range_expanded
-        standard_bull &= (not self.cfg.require_follow_through or (any_buy and row.close > row.close and bull))
-        standard_bear &= (not self.cfg.require_follow_through or (any_sell and row.close < row.close and bear))
+        active_buy_level = levels[buy_name] if buy_name != "NONE" else np.nan
+        active_sell_level = levels[sell_name] if sell_name != "NONE" else np.nan
+        bull_follow = bool(pd.notna(active_buy_level) and row.close > active_buy_level and row.close > x.close.iloc[-2] and bull)
+        bear_follow = bool(pd.notna(active_sell_level) and row.close < active_sell_level and row.close < x.close.iloc[-2] and bear)
+        standard_bull &= (not self.cfg.require_follow_through or bull_follow)
+        standard_bear &= (not self.cfg.require_follow_through or bear_follow)
         standard_bull &= (not self.cfg.use_smc_filter or smc["bullSMCOk"])
         standard_bear &= (not self.cfg.use_smc_filter or smc["bearSMCOk"])
 
