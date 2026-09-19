@@ -1,0 +1,1 @@
+"""Upstox adapter package. Authentication and V3 market-data implementation follows."""
