@@ -115,98 +115,17 @@ class PrimeEngine:
             return False
         return low <= level if mode == "Wick Touch" else close < level * (1 - buffer / 100)
 
-    def _pivots(self, x: pd.DataFrame) -> tuple[float, float]:
-        n = self.cfg.pivot_length
-        if len(x) < 2*n+1:
+    def _structure_levels(self, x: pd.DataFrame) -> tuple[float, float]:
+        """Simple recent structure levels used for risk only.
+
+        SMC/BOS/sweep/FVG/order-block analysis is intentionally not part of
+        this scanner. Risk can still use recent swing structure without SMC.
+        """
+        lookback = min(20, max(5, len(x) - 1))
+        recent = x.iloc[-lookback-1:-1]
+        if recent.empty:
             return math.nan, math.nan
-        highs, lows = x.high.to_numpy(), x.low.to_numpy()
-        last_h = last_l = math.nan
-        for i in range(n, len(x)-n):
-            if highs[i] == np.max(highs[i-n:i+n+1]):
-                last_h = highs[i]
-            if lows[i] == np.min(lows[i-n:i+n+1]):
-                last_l = lows[i]
-        return last_h, last_l
-
-    def _smc(self, x: pd.DataFrame) -> dict[str, Any]:
-        n = self.cfg.pivot_length
-        high, low, close, op = x.high, x.low, x.close, x.open
-        last_h, last_l = self._pivots(x)
-        bull_bos = bool(pd.notna(last_h) and close.iloc[-1] > last_h and close.iloc[-2] <= last_h)
-        bear_bos = bool(pd.notna(last_l) and close.iloc[-1] < last_l and close.iloc[-2] >= last_l)
-
-        # Reconstruct structure direction over the full history.
-        direction = 0
-        for i in range(n, len(x)-n):
-            ph = high.iloc[i] if high.iloc[i] == high.iloc[i-n:i+n+1].max() else math.nan
-            pl = low.iloc[i] if low.iloc[i] == low.iloc[i-n:i+n+1].min() else math.nan
-            if pd.notna(ph) and i > 0 and close.iloc[i+1] > ph:
-                direction = 1
-            if pd.notna(pl) and i > 0 and close.iloc[i+1] < pl:
-                direction = -1
-        bull_choch = bull_bos and direction == -1
-        bear_choch = bear_bos and direction == 1
-
-        prior_hi = high.shift(1).rolling(self.cfg.sweep_lookback).max().iloc[-1]
-        prior_lo = low.shift(1).rolling(self.cfg.sweep_lookback).min().iloc[-1]
-        bull_liq = bool(pd.notna(prior_lo) and low.iloc[-1] < prior_lo and close.iloc[-1] > prior_lo)
-        bear_liq = bool(pd.notna(prior_hi) and high.iloc[-1] > prior_hi and close.iloc[-1] < prior_hi)
-
-        levels = self._levels(x)
-        bull_pdl = bool(pd.notna(levels["pdl"]) and low.iloc[-1] < levels["pdl"] and close.iloc[-1] > levels["pdl"])
-        bear_pdh = bool(pd.notna(levels["pdh"]) and high.iloc[-1] > levels["pdh"] and close.iloc[-1] < levels["pdh"])
-        bull_sweep, bear_sweep = bull_liq or bull_pdl, bear_liq or bear_pdh
-
-        rng = (high-low).replace(0, np.nan)
-        body = (close-op).abs()
-        avg_rng = self._sma(high-low, self.cfg.range_average_length)
-        expansion = float((rng.iloc[-1] / avg_rng.iloc[-1]) if avg_rng.iloc[-1] else 1)
-        body_ratio = float(body.iloc[-1] / rng.iloc[-1]) if rng.iloc[-1] else 0
-        disp_bull = bool(close.iloc[-1] > op.iloc[-1] and body_ratio >= self.cfg.minimum_displacement_body and expansion >= self.cfg.displacement_multiplier)
-        disp_bear = bool(close.iloc[-1] < op.iloc[-1] and body_ratio >= self.cfg.minimum_displacement_body and expansion >= self.cfg.displacement_multiplier)
-
-        bull_fvg = len(x) >= 3 and low.iloc[-1] > high.iloc[-3]
-        bear_fvg = len(x) >= 3 and high.iloc[-1] < low.iloc[-3]
-
-        bull_fvg_age = None
-        bear_fvg_age = None
-        for j in range(len(x)-1, max(-1, len(x)-self.cfg.fvg_lookback-2), -1):
-            if j >= 2 and low.iloc[j] > high.iloc[j-2]:
-                bull_fvg_age = len(x)-1-j; break
-        for j in range(len(x)-1, max(-1, len(x)-self.cfg.fvg_lookback-2), -1):
-            if j >= 2 and high.iloc[j] < low.iloc[j-2]:
-                bear_fvg_age = len(x)-1-j; break
-        bull_fvg_recent = bull_fvg_age is not None and bull_fvg_age <= self.cfg.fvg_lookback
-        bear_fvg_recent = bear_fvg_age is not None and bear_fvg_age <= self.cfg.fvg_lookback
-
-        bull_ob_recent = False
-        bear_ob_recent = False
-        if bull_bos:
-            for i in range(1, min(self.cfg.ob_lookback, len(x)-1)+1):
-                if op.iloc[-1-i] > close.iloc[-1-i]:
-                    bull_ob_recent = True; break
-        if bear_bos:
-            for i in range(1, min(self.cfg.ob_lookback, len(x)-1)+1):
-                if op.iloc[-1-i] < close.iloc[-1-i]:
-                    bear_ob_recent = True; break
-
-        bull_score = (2 if bull_bos or bull_choch else 0) + (2 if bull_sweep else 0) + (1 if disp_bull else 0) + (1 if bull_fvg_recent else 0) + (1 if bull_ob_recent else 0)
-        bear_score = (2 if bear_bos or bear_choch else 0) + (2 if bear_sweep else 0) + (1 if disp_bear else 0) + (1 if bear_fvg_recent else 0) + (1 if bear_ob_recent else 0)
-
-        bull_ok = disp_bull and (not self.cfg.require_bos or bull_bos or bull_choch) and (not self.cfg.require_liquidity_sweep or bull_sweep) and (not self.cfg.require_fvg or bull_fvg_recent) and (not self.cfg.require_order_block or bull_ob_recent)
-        bear_ok = disp_bear and (not self.cfg.require_bos or bear_bos or bear_choch) and (not self.cfg.require_liquidity_sweep or bear_sweep) and (not self.cfg.require_fvg or bear_fvg_recent) and (not self.cfg.require_order_block or bear_ob_recent)
-
-        return locals() | {
-            "bullBOS": bull_bos, "bearBOS": bear_bos,
-            "bullCHoCH": bull_choch, "bearCHoCH": bear_choch,
-            "bullSweep": bull_sweep, "bearSweep": bear_sweep,
-            "displacementBull": disp_bull, "displacementBear": disp_bear,
-            "bullFVGRecent": bull_fvg_recent, "bearFVGRecent": bear_fvg_recent,
-            "bullOBRecent": bull_ob_recent, "bearOBRecent": bear_ob_recent,
-            "bullSMCOk": bull_ok, "bearSMCOk": bear_ok,
-            "smcBullScore": bull_score, "smcBearScore": bear_score,
-            "structureDirection": direction,
-        }
+        return float(recent["high"].max()), float(recent["low"].min())
 
     def evaluate(self, df: pd.DataFrame, timeframe_minutes: int) -> dict[str, Any]:
         x = self._prepare(df, timeframe_minutes)
@@ -255,7 +174,6 @@ class PrimeEngine:
         prev_compressed = bool(pd.notna(prev_avg) and (x.high.iloc[-2]-x.low.iloc[-2]) < prev_avg*.80)
         compression_expansion = range_expanded and prev_compressed
 
-        smc = self._smc(x)
         def up(v): return self._cross_up(row.close,row.high,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
         def dn(v): return self._cross_down(row.close,row.low,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
 
@@ -314,11 +232,8 @@ class PrimeEngine:
         bear_follow = bool(pd.notna(active_sell_level) and row.close < active_sell_level and row.close < x.close.iloc[-2] and bear)
         standard_bull &= (not self.cfg.require_follow_through or bull_follow)
         standard_bear &= (not self.cfg.require_follow_through or bear_follow)
-        standard_bull &= (not self.cfg.use_smc_filter or smc["bullSMCOk"])
-        standard_bear &= (not self.cfg.use_smc_filter or smc["bearSMCOk"])
-
-        bull_base = in_scan and ((opening_buy or master_buy or standard_bull)) and (not self.cfg.use_smc_filter or smc["bullSMCOk"])
-        bear_base = in_scan and ((opening_sell or master_sell or standard_bear)) and (not self.cfg.use_smc_filter or smc["bearSMCOk"])
+        bull_base = in_scan and (opening_buy or master_buy or standard_bull)
+        bear_base = in_scan and (opening_sell or master_sell or standard_bear)
 
         vwap = x["close"].iloc[-1]  # replaced below by session VWAP
         session_date = ts.date()
@@ -361,15 +276,14 @@ class PrimeEngine:
         mins_from_open = tod.hour*60+tod.minute-555
         timing_score = 10 if mins_from_open<=5 else 9 if mins_from_open<=10 else 8 if mins_from_open<=15 else 6 if mins_from_open<=20 else 4 if mins_from_open<=30 else 2 if mins_from_open<=45 else 0
         compression_score = 5 if compression_expansion else 2 if range_expanded else 0
-        smc_score = (smc["smcBullScore"] if bull_confirm else smc["smcBearScore"])/7*10 if (bull_confirm or bear_confirm) else 0
-        prime_score = min(100,max(0,volume_score+lev_score+body_score+close_score+ema_score+range_score+timing_score+compression_score+smc_score)) if (bull_confirm or bear_confirm) else None
+        prime_score = min(100,max(0,volume_score+lev_score+body_score+close_score+ema_score+range_score+timing_score+compression_score)) if (bull_confirm or bear_confirm) else None
 
         grade = "—" if prime_score is None else "PRIME A+" if prime_score>=90 else "PRIME A" if prime_score>=80 else "STRONG" if prime_score>=70 else "GOOD" if prime_score>=60 else "WATCH" if prime_score>=50 else "WEAK"
         state = "FAKE BREAKOUT" if fake_bull or fake_bear else "CONFIRMED" if bull_confirm or bear_confirm else "SETUP" if bull_setup or bear_setup else "WATCH" if near_pdh or near_pdl else "NO TRADE"
         direction = "BUY" if bull_confirm else "SELL" if bear_confirm else "FAKE BULL" if fake_bull else "FAKE BEAR" if fake_bear else "BULLISH" if bull_setup else "BEARISH" if bear_setup else "NEUTRAL"
 
         atr_v = float(atr.iloc[-1]) if pd.notna(atr.iloc[-1]) else candle_range
-        last_swing_high, last_swing_low = smc["last_h"], smc["last_l"]
+        last_swing_high, last_swing_low = self._structure_levels(x)
         sl = None
         if bull_confirm:
             sl = row.low if self.cfg.sl_mode=="SIGNAL CANDLE" else (last_swing_low if pd.notna(last_swing_low) else row.low)
@@ -416,7 +330,6 @@ class PrimeEngine:
             "confluence": {"bull":conf_bull,"bear":conf_bear},
             "core_logic": "BUY" if bull_base else "SELL" if bear_base else "—",
             "blocked_by": " ".join(block) if block else "—",
-            "smc": {"structure_direction":smc["structureDirection"],"bull_bos":smc["bullBOS"],"bear_bos":smc["bearBOS"],"bull_choch":smc["bullCHoCH"],"bear_choch":smc["bearCHoCH"],"bull_sweep":smc["bullSweep"],"bear_sweep":smc["bearSweep"],"bull_fvg":smc["bullFVGRecent"],"bear_fvg":smc["bearFVGRecent"],"bull_ob":smc["bullOBRecent"],"bear_ob":smc["bearOBRecent"],"bull_score":smc["smcBullScore"],"bear_score":smc["smcBearScore"]},
             "risk": {"entry":float(row.close) if bull_confirm or bear_confirm else None,"stop_loss":float(sl) if sl is not None else None,"risk_per_share":float(risk_share) if risk_share is not None else None,"quantity":qty,"target1":t1,"target2":t2,"target3":t3},
             "flags": {"opening_buy":opening_buy,"opening_sell":opening_sell,"master_buy":master_buy,"master_sell":master_sell,"standard_buy":standard_bull,"standard_sell":standard_bear,"fake_bull":fake_bull,"fake_bear":fake_bear,"prime_quality":prime_score is not None and prime_score>=self.cfg.prime_threshold},
         }
