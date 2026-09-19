@@ -58,7 +58,7 @@ class ScannerWorker:
             if len(frame) < 30:
                 continue
 
-            result: dict[str, Any] = self.engine.evaluate(frame, timeframe)
+            result: dict[str, Any] = self.engine.evaluate(frame, timeframe, context=context)
             result["symbol"] = instrument_key
 
             if result.get("state") == "CONFIRMED" and result.get("direction") in {"BUY", "SELL"}:
