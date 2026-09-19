@@ -43,20 +43,6 @@ class PrimeConfig:
     enable_fake_breakout: bool = True
     fake_lookback: int = 3
 
-    pivot_length: int = 3
-    sweep_lookback: int = 10
-    fvg_lookback: int = 8
-    ob_lookback: int = 3
-    displacement_multiplier: float = 1.50
-    minimum_displacement_body: float = 0.60
-    use_smc_filter: bool = False
-    require_bos: bool = False
-    require_liquidity_sweep: bool = False
-    require_fvg: bool = False
-    require_order_block: bool = False
-    smc_retest_bars: int = 8
-    cooldown_bars: int = 3
-
     sl_mode: str = "STRUCTURE + ATR"
     atr_sl_multiplier: float = 0.25
     target1_r: float = 1.0
