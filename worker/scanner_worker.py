@@ -76,9 +76,10 @@ class ScannerWorker:
 
             if result.get("state") == "CONFIRMED" and result.get("direction") in {"BUY", "SELL"}:
                 try:
-                    self.supabase.write_signal(result, instrument_key, symbol)
-                    send_confirmed({**result, "symbol": symbol})
-                    self.captured_count += 1
+                    inserted = self.supabase.write_signal(result, instrument_key, symbol)
+                    if inserted:
+                        send_confirmed({**result, "symbol": symbol})
+                        self.captured_count += 1
                     print(
                         f"[CONFIRMED] {result['direction']} {symbol} "
                         f"{timeframe}m score={result.get('prime_score')} "
