@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, timedelta
 from typing import Any, Callable
 
 import pandas as pd
+import requests
 
 
 class UpstoxV3Feed:
-    """Thin adapter around the official Upstox MarketDataStreamerV3 SDK.
-
-    The Upstox V3 full feed provides the live I1 (1-minute) OHLC candle.
-    We normalize that candle here; the scanner remains broker-neutral.
-    """
+    """Upstox V3 full-feed adapter with one-minute OHLC normalization."""
 
     def __init__(self, access_token: str, instrument_keys: list[str]):
         try:
@@ -21,6 +18,7 @@ class UpstoxV3Feed:
             raise RuntimeError("Install upstox-python-sdk before starting the live worker") from exc
 
         self._sdk = upstox_client
+        self.access_token = access_token
         cfg = upstox_client.Configuration()
         cfg.access_token = access_token
         self.streamer = upstox_client.MarketDataStreamerV3(
@@ -78,6 +76,50 @@ class UpstoxV3Feed:
             frame = frame.sort_values("timestamp").reset_index(drop=True)
             for callback in self._callbacks:
                 callback(instrument_key, frame)
+
+    def seed_history(self) -> None:
+        """Seed up to one month of 1-minute candles before opening the live stream."""
+        to_date = date.today()
+        from_date = to_date - timedelta(days=30)
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.access_token}",
+        }
+
+        for index, instrument_key in enumerate(self._bars.keys()):
+            pass
+
+        instrument_keys = list(self.streamer.instrument_keys) if hasattr(self.streamer, "instrument_keys") else []
+        if not instrument_keys:
+            # SDK versions differ; recover keys from the private object when available.
+            instrument_keys = getattr(self.streamer, "_instrument_keys", [])
+
+        for index, instrument_key in enumerate(instrument_keys):
+            encoded = requests.utils.quote(instrument_key, safe="")
+            url = (
+                f"https://api.upstox.com/v3/historical-candle/{encoded}/minutes/1/"
+                f"{to_date.isoformat()}/{from_date.isoformat()}"
+            )
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                candles = response.json().get("data", {}).get("candles", [])
+                for c in candles:
+                    if len(c) < 6:
+                        continue
+                    ts = pd.to_datetime(c[0]).tz_convert("Asia/Kolkata")
+                    self._bars[instrument_key][ts] = {
+                        "timestamp": ts,
+                        "open": float(c[1]),
+                        "high": float(c[2]),
+                        "low": float(c[3]),
+                        "close": float(c[4]),
+                        "volume": float(c[5]),
+                    }
+                if (index + 1) % 25 == 0:
+                    print(f"Historical seed: {index + 1}/{len(instrument_keys)}")
+            except Exception as exc:
+                print(f"Historical seed failed for {instrument_key}: {exc}")
 
     def connect(self) -> None:
         self.streamer.connect()
