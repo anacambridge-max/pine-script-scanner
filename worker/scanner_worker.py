@@ -103,6 +103,9 @@ class ScannerWorker:
         signal.signal(signal.SIGTERM, self.stop)
         print(f"Prime live scanner starting with {len(self.instrument_map)} F&O stock underlyings...")
         self._heartbeat("STARTING")
+        print("Seeding one month of 1-minute history...")
+        self.feed.seed_history()
+        self._heartbeat("HISTORY_READY")
         while self.running:
             try:
                 self.feed.connect()
