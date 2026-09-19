@@ -23,7 +23,7 @@ class UpstoxV3Feed:
         cfg = upstox_client.Configuration()
         cfg.access_token = access_token
         self.streamer = upstox_client.MarketDataStreamerV3(
-            upstox_client.ApiClient(cfg), instrument_keys, "full"
+            upstox_client.ApiClient(cfg), self.instrument_keys, "full"
         )
         self._callbacks: list[Callable[[str, pd.DataFrame], None]] = []
         self._bars: dict[str, dict[pd.Timestamp, dict[str, float]]] = defaultdict(dict)
@@ -100,7 +100,7 @@ class UpstoxV3Feed:
                 for c in candles:
                     if len(c) < 6:
                         continue
-                    ts = pd.to_datetime(c[0]).tz_convert("Asia/Kolkata")
+                    ts = pd.to_datetime(c[0], utc=True).tz_convert("Asia/Kolkata")
                     self._bars[instrument_key][ts] = {
                         "timestamp": ts,
                         "open": float(c[1]),
@@ -110,7 +110,7 @@ class UpstoxV3Feed:
                         "volume": float(c[5]),
                     }
                 if (index + 1) % 25 == 0:
-                    print(f"Historical seed: {index + 1}/{len(instrument_keys)}")
+                    print(f"Historical seed: {index + 1}/{len(self.instrument_keys)}")
             except Exception as exc:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
