@@ -212,6 +212,16 @@ class PrimeEngine:
         sell_name = next((k for k in ["ATL","52W LOW","MONTHLY LOW","WEEKLY LOW","PDL"] if sells.get(k)), "NONE")
         score_map = {"ATH":100,"52W HIGH":80,"MONTHLY HIGH":60,"WEEKLY HIGH":40,"PDH":20,
                      "ATL":100,"52W LOW":80,"MONTHLY LOW":60,"WEEKLY LOW":40,"PDL":20}
+        # Display names above are intentionally human-readable, while the
+        # level dictionary uses stable lowercase keys. Keep the mapping
+        # explicit so a confirmed level never raises KeyError.
+        level_key_map = {
+            "PDH": "pdh", "PDL": "pdl",
+            "WEEKLY HIGH": "weekly_high", "WEEKLY LOW": "weekly_low",
+            "MONTHLY HIGH": "monthly_high", "MONTHLY LOW": "monthly_low",
+            "52W HIGH": "year_high", "52W LOW": "year_low",
+            "ATH": "ath", "ATL": "atl",
+        }
 
         prev_buy = any(bool(up(v)) for v in levels.values()) if False else None
         # Pine uses a fresh-break condition. Compute it from the previous candle.
@@ -240,8 +250,8 @@ class PrimeEngine:
         if self.cfg.signal_mode == "QUALITY PRIME":
             standard_bull &= strong_bull and range_expanded
             standard_bear &= strong_bear and range_expanded
-        active_buy_level = levels[buy_name] if buy_name != "NONE" else np.nan
-        active_sell_level = levels[sell_name] if sell_name != "NONE" else np.nan
+        active_buy_level = levels[level_key_map[buy_name]] if buy_name != "NONE" else np.nan
+        active_sell_level = levels[level_key_map[sell_name]] if sell_name != "NONE" else np.nan
         bull_follow = bool(pd.notna(active_buy_level) and row.close > active_buy_level and row.close > x.close.iloc[-2] and bull)
         bear_follow = bool(pd.notna(active_sell_level) and row.close < active_sell_level and row.close < x.close.iloc[-2] and bear)
         standard_bull &= (not self.cfg.require_follow_through or bull_follow)
