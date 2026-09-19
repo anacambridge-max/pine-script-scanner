@@ -32,10 +32,9 @@ Vercel is intentionally not used for a persistent broker WebSocket. The worker i
 - 09:15-specific RVOL history.
 - Opening Candle, Master Candle and Standard Break pathways.
 - EMA, candle quality, range expansion/compression.
-- BOS/CHoCH, liquidity sweeps, FVG and order-block state.
 - Optional five-check confluence gate.
 - Fake breakout and WATCH/SETUP/CONFIRMED state machine.
-- Prime Score, grade, SL, R targets and risk quantity.
+- Prime Score, grade, SL, R targets and risk quantity without SMC dependencies.
 - Unit-testable pandas implementation.
 
 ## Run locally
