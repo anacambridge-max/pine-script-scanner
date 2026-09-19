@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import time
+import traceback
 from typing import Any
 
 import pandas as pd
@@ -71,7 +72,8 @@ class ScannerWorker:
                 result: dict[str, Any] = self.engine.evaluate(frame, timeframe, context=None)
             except Exception as exc:
                 self._heartbeat("ERROR", str(exc))
-                print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc}")
+                print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc!r}")
+                traceback.print_exc()
                 continue
 
             if result.get("state") == "CONFIRMED" and result.get("direction") in {"BUY", "SELL"}:
