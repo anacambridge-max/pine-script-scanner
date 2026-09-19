@@ -29,7 +29,7 @@ class SupabaseStore:
             raise RuntimeError(f"Supabase {method} failed: {response.status_code} {response.text[:500]}")
         return response
 
-    def write_signal(self, result: dict[str, Any], instrument_key: str, symbol: str) -> None:
+    def write_signal(self, result: dict[str, Any], instrument_key: str, symbol: str) -> bool:
         risk = result.get("risk") or {}
         entry = risk.get("entry")
         stop = risk.get("stop_loss")
@@ -41,7 +41,18 @@ class SupabaseStore:
                 rr = abs(float(target1) - float(entry)) / risk_per_share
 
         ts = result.get("timestamp")
-        signal_id = f"{symbol}|{result.get('timeframe')}|{result.get('direction')}|{ts}"
+        day = str(ts)[:10]
+        signal_id = f"{symbol}|{result.get('timeframe')}|{result.get('direction')}|{day}"
+
+        existing = requests.get(
+            self.base + "/rest/v1/scanner_signals",
+            headers=self.headers,
+            params={"select": "id", "id": f"eq.{signal_id}", "limit": "1"},
+            timeout=20,
+        )
+        if not existing.ok:
+            raise RuntimeError(f"Supabase signal lookup failed: {existing.status_code} {existing.text[:500]}")
+        already_exists = bool(existing.json())
         row = {
             "id": signal_id,
             "symbol": symbol,
@@ -74,6 +85,9 @@ class SupabaseStore:
                 "full_result": result,
             },
         }
+        if already_exists:
+            return False
+
         self._request(
             "POST",
             "scanner_signals",
@@ -81,6 +95,7 @@ class SupabaseStore:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             data=json.dumps(row, default=str),
         )
+        return True
 
     def heartbeat(self, status: str, universe_count: int, captured_count: int, error: str | None = None) -> None:
         now = datetime.now().astimezone().isoformat()
