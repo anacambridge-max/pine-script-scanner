@@ -3,3 +3,4 @@ numpy>=2.0,<3
 pytest>=8,<9
 pytz>=2024.1
 requests>=2.32,<3
+upstox-python-sdk>=2.23,<3
