@@ -68,7 +68,7 @@ class PrimeEngine:
         x["timestamp"] = ts
         return x
 
-    def _levels(self, x: pd.DataFrame) -> dict[str, float]:
+    def _levels(self, x: pd.DataFrame, context: pd.DataFrame | None = None) -> dict[str, float]:
         ts = x["timestamp"].iloc[-1]
         day = ts.date()
         prev_day = day - pd.Timedelta(days=1)
@@ -91,7 +91,7 @@ class PrimeEngine:
         weeks = prior_week.groupby(prior_week.timestamp.dt.to_period("W-SUN"))
         weekly_hi = weeks.high.max().tail(52).max() if len(weeks) else math.nan
         weekly_lo = weeks.low.min().tail(52).min() if len(weeks) else math.nan
-        hist = x[x.timestamp.dt.date < day]
+        hist = d
         ath = float(hist.high.max()) if not hist.empty else math.nan
         atl = float(hist.low.min()) if not hist.empty else math.nan
         return {
@@ -127,7 +127,7 @@ class PrimeEngine:
             return math.nan, math.nan
         return float(recent["high"].max()), float(recent["low"].min())
 
-    def evaluate(self, df: pd.DataFrame, timeframe_minutes: int) -> dict[str, Any]:
+    def evaluate(self, df: pd.DataFrame, timeframe_minutes: int, context: pd.DataFrame | None = None) -> dict[str, Any]:
         x = self._prepare(df, timeframe_minutes)
         if len(x) < max(30, self.cfg.volume_length):
             return {"state":"NO TRADE","direction":"NEUTRAL","reason":"WARMUP","timeframe":timeframe_minutes}
@@ -140,7 +140,7 @@ class PrimeEngine:
         in_scan = start <= tod <= end
         is0915 = tod.hour == 9 and tod.minute == 15
 
-        levels = self._levels(x)
+        levels = self._levels(x, context)
         ema = self._ema(x.close, self.cfg.ema_length)
         ema_v = float(ema.iloc[-1])
         price_above = row.close > ema_v
