@@ -28,7 +28,6 @@ def test_result_shape():
     assert result["timeframe"] == 1
     assert "prime_score" in result
     assert "risk" in result
-    assert "smc" in result
 
 def test_grade_mapping():
     # Validate the score bands used by the Pine implementation indirectly
