@@ -2,43 +2,48 @@ import pandas as pd
 from engine.scanner_filters import evaluate_chartink_filters
 
 
-def make_1m(days=2):
-    ts = pd.date_range(
-        "2026-09-17 09:15",
-        periods=2 * 375,
-        freq="1min",
-        tz="Asia/Kolkata",
-    )
-    # Keep the synthetic session structure simple and deterministic.
-    close = [100.0] * len(ts)
-    high = [101.0] * len(ts)
-    low = [99.0] * len(ts)
-    volume = [1000.0] * len(ts)
-    return pd.DataFrame({
-        "timestamp": ts,
-        "open": close,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    })
+def make_1m():
+    parts = []
+    for day in ["2026-09-17", "2026-09-18"]:
+        ts = pd.date_range(
+            f"{day} 09:15",
+            periods=375,
+            freq="1min",
+            tz="Asia/Kolkata",
+        )
+        parts.append(pd.DataFrame({
+            "timestamp": ts,
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1000.0,
+        }))
+    return pd.concat(parts, ignore_index=True)
 
 
-def test_chartink_filter_requires_all_root_conditions():
-    cash = make_1m()
-    cash_5m = (
-        cash.set_index("timestamp")
+def make_5m(df):
+    return (
+        df.set_index("timestamp")
         .resample("5min", origin="start_day", offset="15min")
-        .agg(open=("open", "first"), high=("high", "max"), low=("low", "min"),
-             close=("close", "last"), volume=("volume", "sum"))
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        )
         .dropna()
         .reset_index()
     )
 
-    # Create a current 5m cash breakout above previous-day high.
+
+def test_chartink_filter_requires_all_root_conditions():
+    cash = make_1m()
+    cash_5m = make_5m(cash)
     cash_5m.loc[cash_5m.index[-1], "high"] = 102.0
 
-    # 20-bar futures volume baseline of 1000, current bar at 2500 -> 2.5x.
+    # 20-bar futures baseline of 1000, current bar at 2500 -> >2x SMA.
     futures_5m = cash_5m.copy()
     futures_5m["volume"] = 1000.0
     futures_5m.loc[futures_5m.index[-1], "volume"] = 2500.0
@@ -53,14 +58,7 @@ def test_chartink_filter_requires_all_root_conditions():
 
 def test_chartink_filter_blocks_low_futures_volume():
     cash = make_1m()
-    cash_5m = (
-        cash.set_index("timestamp")
-        .resample("5min", origin="start_day", offset="15min")
-        .agg(open=("open", "first"), high=("high", "max"), low=("low", "min"),
-             close=("close", "last"), volume=("volume", "sum"))
-        .dropna()
-        .reset_index()
-    )
+    cash_5m = make_5m(cash)
     cash_5m.loc[cash_5m.index[-1], "high"] = 102.0
 
     futures_5m = cash_5m.copy()
