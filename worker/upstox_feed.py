@@ -39,16 +39,16 @@ class UpstoxV3Feed:
             self._sdk.ApiClient(cfg), self.instrument_keys, "full"
         )
 
-        # Use the official V3 SDK reconnect mechanism. If it ever exhausts,
-        # ScannerWorker rebuilds the streamer object.
-        streamer.auto_reconnect(True, 5, 100000)
+        # Keep reconnect ownership in ScannerWorker. The SDK's internal
+        # reconnect thread can overlap with our worker-level rebuilds and
+        # create multiple concurrent websocket handshakes. Upstox currently
+        # allows only 2 normal websocket connections per user.
+        streamer.auto_reconnect(False)
 
         streamer.on("open", self._on_open)
         streamer.on("message", self._on_message)
         streamer.on("error", self._on_error)
         streamer.on("close", self._on_close)
-        streamer.on("reconnecting", self._on_reconnecting)
-        streamer.on("autoReconnectStopped", self._on_auto_reconnect_stopped)
         return streamer
 
     def rebuild_streamer(self) -> None:
@@ -63,12 +63,6 @@ class UpstoxV3Feed:
 
     def _on_open(self, *_args: Any) -> None:
         print("Upstox V3 WebSocket connected")
-
-    def _on_reconnecting(self, *_args: Any) -> None:
-        print("Upstox V3 WebSocket reconnecting...")
-
-    def _on_auto_reconnect_stopped(self, *_args: Any) -> None:
-        print("Upstox V3 WebSocket auto-reconnect stopped; worker will rebuild the connection")
 
     def _on_error(self, error: Any) -> None:
         print(f"Upstox V3 WebSocket error: {error}")
