@@ -11,7 +11,6 @@ import pandas as pd
 
 from engine import PrimeConfig, PrimeEngine
 from worker.instruments import load_fno_stock_instruments
-from engine.scanner_filters import evaluate_chartink_filters
 from worker.supabase_store import SupabaseStore
 from worker.telegram import send_confirmed
 from worker.upstox_feed import UpstoxV3Feed
@@ -31,17 +30,6 @@ class ScannerWorker:
             x["instrument_key"]: x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
             for x in self.instruments
         }
-        self.futures_map = {
-            x["futures_key"]: x["instrument_key"]
-            for x in self.instruments
-            if x.get("futures_key")
-        }
-        self.cash_to_futures = {
-            x["instrument_key"]: x.get("futures_key")
-            for x in self.instruments
-            if x.get("futures_key")
-        }
-        self.futures_frames: dict[str, pd.DataFrame] = {}
         self.company_map = {
             x["instrument_key"]: x.get("company_name") or x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
             for x in self.instruments
@@ -53,8 +41,7 @@ class ScannerWorker:
         self._heartbeat_thread: threading.Thread | None = None
 
     def _new_feed(self) -> UpstoxV3Feed:
-        feed_keys = list(self.instrument_map) + [k for k in self.futures_map if k not in self.instrument_map]
-        feed = UpstoxV3Feed(self.access_token, feed_keys)
+        feed = UpstoxV3Feed(self.access_token, list(self.instrument_map))
         feed.on_bar(self._on_bar)
         return feed
 
@@ -114,23 +101,13 @@ class ScannerWorker:
 
     def _on_bar(self, instrument_key: str, one_minute: pd.DataFrame) -> None:
         one_minute = one_minute.tail(6000)
-        # Futures contracts are subscribed only to provide the futures-volume
-        # filter. They do not generate stock signals themselves.
-        if instrument_key in self.futures_map:
-            self.futures_frames[instrument_key] = one_minute.tail(6000).copy()
-            return
-
         symbol = self.instrument_map.get(instrument_key, instrument_key)
         if one_minute.empty:
             return
 
-        futures_key = self.cash_to_futures.get(instrument_key)
-        if not futures_key:
-            return
-
         completed_1m_ts = pd.to_datetime(one_minute["timestamp"].iloc[-1])
 
-        for timeframe in (1, 3, 5):
+        for timeframe in (3,):
             if timeframe != 1 and not self._timeframe_bar_is_closed(
                 completed_1m_ts, timeframe
             ):
@@ -142,24 +119,6 @@ class ScannerWorker:
                 else self._aggregate_ohlcv(one_minute, timeframe)
             )
             if len(frame) < 30:
-                continue
-
-            # Mandatory Chartink-style pre-filter. It uses the latest
-            # completed 5-minute cash/futures bars and gates all Prime
-            # timeframes (1m/3m/5m).
-            cash_5m = self._aggregate_ohlcv(one_minute, 5)
-            futures_1m = self.futures_frames.get(futures_key)
-            if futures_1m is None or futures_1m.empty:
-                continue
-            futures_5m = self._aggregate_ohlcv(futures_1m, 5)
-            chartink_filter = evaluate_chartink_filters(
-                cash_5m,
-                one_minute,
-                futures_5m,
-                futures_volume_multiple=2.0,
-                daily_high_min=50.0,
-            )
-            if not chartink_filter["passed"]:
                 continue
 
             try:
@@ -216,7 +175,7 @@ class ScannerWorker:
 
         print(
             f"Prime live scanner starting with {len(self.instrument_map)} "
-            "F&O stock underlyings..."
+            "F&O stock underlyings — 3m PDH/PDL + 2x volume mode..."
         )
         print("Seeding one month of 1-minute history...")
         self.feed.seed_history()
