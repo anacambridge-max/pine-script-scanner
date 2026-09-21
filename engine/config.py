@@ -11,7 +11,7 @@ class PrimeConfig:
     signal_mode: str = "FAST PRIME"
 
     volume_length: int = 20
-    standard_volume_multiple: float = 1.5
+    standard_volume_multiple: float = 2.5
     extreme_volume_multiple: float = 2.5
     use_special_0915_rvol: bool = True
 
