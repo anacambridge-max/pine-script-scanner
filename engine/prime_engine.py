@@ -247,19 +247,25 @@ class PrimeEngine:
         # Master-candle/opening-candle patterns are NOT alternate signal paths.
         prev = x.iloc[-2]
 
+        session_rows = x[x.timestamp.dt.date == ts.date()].iloc[:-1]
+
         def first_break_up(level: float) -> bool:
             if pd.isna(level):
                 return False
             if self.cfg.break_trigger_mode == "Wick Touch":
-                return prev.high < level and row.high >= level
-            return prev.close <= level and row.close > level
+                already_broken = bool((session_rows["high"] >= level).any())
+                return (not already_broken) and prev.high < level and row.high >= level
+            already_broken = bool((session_rows["close"] > level).any())
+            return (not already_broken) and prev.close <= level and row.close > level
 
         def first_break_down(level: float) -> bool:
             if pd.isna(level):
                 return False
             if self.cfg.break_trigger_mode == "Wick Touch":
-                return prev.low > level and row.low <= level
-            return prev.close >= level and row.close < level
+                already_broken = bool((session_rows["low"] <= level).any())
+                return (not already_broken) and prev.low > level and row.low <= level
+            already_broken = bool((session_rows["close"] < level).any())
+            return (not already_broken) and prev.close >= level and row.close < level
 
         first_buys = {
             "PDH": self.cfg.use_pd and first_break_up(levels["pdh"]),
