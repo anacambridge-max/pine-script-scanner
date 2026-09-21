@@ -10,6 +10,10 @@ class PrimeConfig:
     scan_end: str = "15:25"
     signal_mode: str = "FAST PRIME"
 
+    # SMC / BOS / CHoCH / Liquidity Sweep / FVG / Order Block logic is
+    # intentionally removed. Scanner confirmation is level-break + close
+    # confirmation + extreme volume + configured EMA/candle filters only.
+
     volume_length: int = 20
     standard_volume_multiple: float = 2.5
     extreme_volume_multiple: float = 2.5
