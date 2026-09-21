@@ -28,6 +28,7 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
 
     today = datetime.now().date()
     eligible_underlyings: set[str] = set()
+    underlying_symbols: dict[str, str] = {}
 
     for row in rows:
         if row.get("segment") != "NSE_FO":
@@ -50,11 +51,17 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
                 pass
 
         eligible_underlyings.add(underlying)
+        symbol = row.get("underlying_symbol")
+        if symbol:
+            underlying_symbols[underlying] = str(symbol)
 
     if not eligible_underlyings:
         raise RuntimeError("No current NSE stock-F&O underlyings found in Upstox instrument master")
 
     return [
-        {"instrument_key": key, "trading_symbol": key.split("|", 1)[-1]}
+        {
+            "instrument_key": key,
+            "trading_symbol": underlying_symbols.get(key, key.split("|", 1)[-1]),
+        }
         for key in sorted(eligible_underlyings)
     ]
