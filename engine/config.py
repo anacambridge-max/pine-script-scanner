@@ -17,7 +17,7 @@ class PrimeConfig:
     volume_length: int = 20
     standard_volume_multiple: float = 2.0
     extreme_volume_multiple: float = 2.0
-    use_special_0915_rvol: bool = True
+    use_special_0915_rvol: bool = False
 
     minimum_body_ratio: float = 0.50
     minimum_close_location: float = 0.60
