@@ -29,6 +29,9 @@ export async function GET(request: Request) {
   // MASTER CANDLE and other historical rows from appearing in "ALL TODAY".
   endpoint.searchParams.set("signal_state", "eq.CONFIRMED");
   endpoint.searchParams.set("setup", "eq.STANDARD BREAK");
+  // Hard filter the dashboard to the current scanner's ONLY supported timeframe.
+  // PostgREST JSON path syntax: metadata->>timeframe=eq.3
+  endpoint.searchParams.set("metadata->>timeframe", "eq.3");
   endpoint.searchParams.set("signal_time", `gte.${today}T00:00:00`);
   endpoint.searchParams.set("order", "signal_time.desc.nullslast");
   endpoint.searchParams.set("limit", String(limit));
