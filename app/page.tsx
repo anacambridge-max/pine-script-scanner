@@ -12,7 +12,7 @@ type Signal = {
   vwap_status: string | null; rvol: number | null; volume_grade: string | null;
   breakout_level: number | null; fo_confirmation: string | null;
   is_active: boolean | null; signal_time: string | null; last_updated: string | null;
-  metadata?: { timeframe?: string; company_name?: string };
+  metadata?: { timeframe?: string; company_name?: string; sector?: string; sector_change_percent?: number; sector_rank?: number; sector_rank_type?: string; score_breakdown?: Record<string, unknown> };
 };
 
 const fmt = (value: number | null, digits = 2) =>
@@ -91,10 +91,10 @@ export default function Home() {
       <section className="tableWrap">
         <table>
           <thead><tr>
-            {["TIME","SYMBOL / COMPANY","SIGNAL","TF","SCORE","GRADE","LTP","ENTRY","SL","T1","T2","R:R","RVOL","BREAKOUT","SETUP"].map((h) => <th key={h}>{h}</th>)}
+            {["TIME","SYMBOL / COMPANY","SIGNAL","TF","SCORE","GRADE","SECTOR","SECTOR RANK","LTP","ENTRY","SL","T1","T2","R:R","RVOL","BREAKOUT","SETUP"].map((h) => <th key={h}>{h}</th>)}
           </tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={15} className="empty">Loading signal feed…</td></tr> :
+            {loading ? <tr><td colSpan={17} className="empty">Loading signal feed…</td></tr> :
              filtered.length === 0 ? <tr><td colSpan={15} className="empty"><strong>No signals yet</strong><span>When the scanner writes confirmed signals to scanner_signals, they will appear here automatically.</span></td></tr> :
              filtered.map((signal) => {
                const side = signal.signal_type.toUpperCase().includes("BUY") ? "buyText" : "sellText";
@@ -102,6 +102,8 @@ export default function Home() {
                return <tr key={signal.id}>
                  <td>{timeFmt(signal.signal_time)}</td><td className="symbol"><div>{signal.symbol}</div><small className="company">{signal.metadata?.company_name ?? signal.symbol}</small></td>
                  <td className={side}>{signal.signal_type}</td><td>{tf}</td><td>{signal.score ?? "—"}</td><td>{signal.grade ?? "—"}</td>
+                 <td>{signal.metadata?.sector ?? "—"}</td>
+                 <td>{signal.metadata?.sector_rank ? `#${signal.metadata.sector_rank} ${signal.metadata.sector_rank_type ?? ""}` : "—"}</td>
                  <td>{fmt(signal.ltp)}</td><td>{fmt(signal.entry)}</td><td>{fmt(signal.stop_loss)}</td><td>{fmt(signal.target1)}</td>
                  <td>{fmt(signal.target2)}</td><td>{fmt(signal.risk_reward)}</td><td>{fmt(signal.rvol)}</td><td>{fmt(signal.breakout_level)}</td><td>{signal.setup ?? "—"}</td>
                </tr>;
