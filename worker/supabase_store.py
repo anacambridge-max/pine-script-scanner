@@ -144,6 +144,20 @@ class SupabaseStore:
         )
         return True
 
+    def delete_previous_days(self) -> int:
+        """Delete scanner signals from dates before today."""
+        day = datetime.now().date().isoformat()
+        response = self._request(
+            "DELETE",
+            "scanner_signals",
+            params={"signal_time": f"lt.{day}T00:00:00"},
+            headers={"Prefer": "return=representation"},
+        )
+        try:
+            return len(response.json())
+        except Exception:
+            return 0
+
     def heartbeat(
         self,
         status: str,
