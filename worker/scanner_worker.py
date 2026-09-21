@@ -182,14 +182,15 @@ class ScannerWorker:
             try:
                 print("Connecting to Upstox V3 WebSocket...")
                 self.feed.connect()
+                # connect() starts the SDK's websocket thread and returns
+                # immediately. Wait for its actual close event before creating
+                # another streamer; rebuilding immediately causes overlapping
+                # handshakes and Upstox 403 responses.
+                self.feed.wait_until_closed()
 
                 if self.running:
-                    # The SDK auto-reconnect is deliberately disabled. There
-                    # must be only one owner of reconnects, otherwise an old
-                    # SDK reconnect thread can overlap a newly-created
-                    # streamer and trigger repeated 403 handshakes.
                     print(
-                        f"Upstox streamer returned; waiting {reconnect_delay}s "
+                        f"Upstox connection closed; waiting {reconnect_delay}s "
                         "before rebuilding connection..."
                     )
                     self._heartbeat("RECONNECTING")
