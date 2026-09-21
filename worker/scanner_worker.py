@@ -175,6 +175,12 @@ class ScannerWorker:
         signal.signal(signal.SIGTERM, self.stop)
 
         self._heartbeat("STARTING")
+        try:
+            deleted = self.supabase.delete_previous_days()
+            if deleted:
+                print(f"[CLEANUP] Removed {deleted} previous-day scanner signals")
+        except Exception as exc:
+            print(f"[CLEANUP ERROR] {exc}")
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
             name="scanner-heartbeat",
