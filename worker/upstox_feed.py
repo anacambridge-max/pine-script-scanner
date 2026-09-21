@@ -37,8 +37,11 @@ class UpstoxV3Feed:
     def _build_streamer(self):
         cfg = self._sdk.Configuration()
         cfg.access_token = self.access_token
+        # Follow Upstox's documented V3 pattern: create the streamer first
+        # and explicitly subscribe inside the open callback. This guarantees
+        # the post-authentication subscription request is actually sent.
         streamer = self._sdk.MarketDataStreamerV3(
-            self._sdk.ApiClient(cfg), self.instrument_keys, "full"
+            self._sdk.ApiClient(cfg), [], "full"
         )
 
         # Keep reconnect ownership in ScannerWorker. The SDK's internal
@@ -65,7 +68,19 @@ class UpstoxV3Feed:
 
     def _on_open(self, *_args: Any) -> None:
         self._closed.clear()
-        print("Upstox V3 WebSocket connected")
+        print(
+            f"Upstox V3 WebSocket connected; subscribing "
+            f"{len(self.instrument_keys)} instruments..."
+        )
+        try:
+            self.streamer.subscribe(self.instrument_keys, "full")
+            print(f"Upstox V3 subscription sent: {len(self.instrument_keys)} instruments")
+        except Exception as exc:
+            print(f"Upstox V3 subscription error: {exc}")
+            try:
+                self.streamer.disconnect()
+            except Exception:
+                pass
 
     def _on_error(self, error: Any) -> None:
         print(f"Upstox V3 WebSocket error: {error}")
