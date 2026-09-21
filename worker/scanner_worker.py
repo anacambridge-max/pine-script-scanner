@@ -176,23 +176,37 @@ class ScannerWorker:
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
 
+        reconnect_delay = 20
+
         while self.running:
             try:
                 print("Connecting to Upstox V3 WebSocket...")
                 self.feed.connect()
 
                 if self.running:
+                    # The SDK auto-reconnect is deliberately disabled. There
+                    # must be only one owner of reconnects, otherwise an old
+                    # SDK reconnect thread can overlap a newly-created
+                    # streamer and trigger repeated 403 handshakes.
                     print(
-                        "Upstox streamer returned; rebuilding connection in 5s..."
+                        f"Upstox streamer returned; waiting {reconnect_delay}s "
+                        "before rebuilding connection..."
                     )
-                    time.sleep(5)
+                    self._heartbeat("RECONNECTING")
+                    time.sleep(reconnect_delay)
                     self.feed = self._new_feed()
+                    reconnect_delay = min(reconnect_delay + 10, 60)
+
             except Exception as exc:
                 self._heartbeat("RECONNECTING", str(exc))
-                print(f"[FEED ERROR] {exc}; rebuilding in 10s")
-                time.sleep(10)
+                print(
+                    f"[FEED ERROR] {exc}; waiting {reconnect_delay}s "
+                    "before rebuilding..."
+                )
+                time.sleep(reconnect_delay)
                 if self.running:
                     self.feed = self._new_feed()
+                reconnect_delay = min(reconnect_delay + 10, 60)
 
 
 if __name__ == "__main__":
