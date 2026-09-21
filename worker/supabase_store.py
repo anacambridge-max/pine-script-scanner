@@ -49,7 +49,7 @@ class SupabaseStore:
             )
         return response
 
-    def write_signal(self, result: dict[str, Any], instrument_key: str, symbol: str) -> bool:
+    def write_signal(self, result: dict[str, Any], instrument_key: str, symbol: str, company_name: str | None = None) -> bool:
         risk = result.get("risk") or {}
         entry = risk.get("entry")
         stop = risk.get("stop_loss")
@@ -112,6 +112,7 @@ class SupabaseStore:
             "metadata": {
                 "timeframe": result.get("timeframe"),
                 "trigger": result.get("trigger"),
+                "company_name": company_name or symbol,
                 "full_result": result,
             },
         }
