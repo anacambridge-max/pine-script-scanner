@@ -30,6 +30,10 @@ class ScannerWorker:
             x["instrument_key"]: x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
             for x in self.instruments
         }
+        self.company_map = {
+            x["instrument_key"]: x.get("company_name") or x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
+            for x in self.instruments
+        }
         self.feed = self._new_feed()
         self.running = True
         self.captured_count = 0
@@ -132,11 +136,12 @@ class ScannerWorker:
                 and result.get("direction") in {"BUY", "SELL"}
             ):
                 try:
+                    company_name = self.company_map.get(instrument_key, symbol)
                     inserted = self.supabase.write_signal(
-                        result, instrument_key, symbol
+                        result, instrument_key, symbol, company_name
                     )
                     if inserted:
-                        send_confirmed({**result, "symbol": symbol})
+                        send_confirmed({**result, "symbol": symbol, "company_name": company_name})
                         self.captured_count += 1
                         print(
                             f"[CONFIRMED] {result['direction']} {symbol} "
