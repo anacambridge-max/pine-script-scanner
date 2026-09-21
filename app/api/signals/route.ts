@@ -28,7 +28,6 @@ export async function GET(request: Request) {
   // today's signals remain visible for the whole trading day and disappear
   // from the board on the next day. New scanner generation remains 3m-only.
   endpoint.searchParams.set("signal_time", `gte.${today}T00:00:00`);
-  endpoint.searchParams.set("signal_time", `lt.${today}T23:59:59.999`);
   endpoint.searchParams.set("order", "signal_time.desc.nullslast");
   endpoint.searchParams.set("limit", String(limit));
 
