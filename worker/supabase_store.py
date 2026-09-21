@@ -96,7 +96,17 @@ class SupabaseStore:
             "volume_grade": result.get("volume_tier"),
             "breakout_level": (
                 (result.get("levels") or {}).get(
-                    "pdh" if result.get("direction") == "BUY" else "pdl"
+                    {
+                        "PDH": "pdh", "PDL": "pdl",
+                        "WEEKLY HIGH": "weekly_high", "WEEKLY LOW": "weekly_low",
+                        "MONTHLY HIGH": "monthly_high", "MONTHLY LOW": "monthly_low",
+                        "52W HIGH": "year_high", "52W LOW": "year_low",
+                        "ATH": "ath", "ATL": "atl",
+                    }.get(
+                        result.get("buy_break") if result.get("direction") == "BUY"
+                        else result.get("sell_break"),
+                        "pdh" if result.get("direction") == "BUY" else "pdl",
+                    )
                 )
             ),
             "score_breakdown": {},
