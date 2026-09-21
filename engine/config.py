@@ -2,9 +2,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PrimeConfig:
-    allow_1m: bool = True
+    allow_1m: bool = False
     allow_3m: bool = True
-    allow_5m: bool = True
+    allow_5m: bool = False
     timezone: str = "Asia/Kolkata"
     scan_start: str = "09:15"
     scan_end: str = "15:25"
@@ -15,8 +15,8 @@ class PrimeConfig:
     # confirmation + extreme volume + configured EMA/candle filters only.
 
     volume_length: int = 20
-    standard_volume_multiple: float = 2.5
-    extreme_volume_multiple: float = 2.5
+    standard_volume_multiple: float = 2.0
+    extreme_volume_multiple: float = 2.0
     use_special_0915_rvol: bool = True
 
     minimum_body_ratio: float = 0.50
@@ -26,25 +26,25 @@ class PrimeConfig:
     compression_lookback: int = 3
 
     use_pd: bool = True
-    use_weekly: bool = True
-    use_monthly: bool = True
-    use_52_week: bool = True
-    use_ath: bool = True
+    use_weekly: bool = False
+    use_monthly: bool = False
+    use_52_week: bool = False
+    use_ath: bool = False
     break_trigger_mode: str = "Close Confirmed"
     level_buffer_pct: float = 0.0
     require_follow_through: bool = False
 
-    use_opening_candle: bool = True
-    use_master_candle: bool = True
+    use_opening_candle: bool = False
+    use_master_candle: bool = False
     master_lookback: int = 5
     master_range_multiplier: float = 1.50
     master_needs_extreme_volume: bool = True
 
-    use_ema_filter: bool = True
+    use_ema_filter: bool = False
     ema_length: int = 20
     ema_full_separation_pct: float = 1.0
 
-    enable_fake_breakout: bool = True
+    enable_fake_breakout: bool = False
     fake_lookback: int = 3
 
     sl_mode: str = "STRUCTURE + ATR"
