@@ -241,56 +241,88 @@ class PrimeEngine:
             "ATH": "ath", "ATL": "atl",
         }
 
-        prev_buy = any(bool(up(v)) for v in levels.values()) if False else None
-        # Pine uses a fresh-break condition. Compute it from the previous candle.
+        # FIRST-BREAK ENGINE:
+        # A signal is allowed only on the SAME CLOSED CANDLE that first
+        # crosses an enabled key level AND has EXTREME volume.
+        # Master-candle/opening-candle patterns are NOT alternate signal paths.
         prev = x.iloc[-2]
-        def up_prev(v):
-            return self._cross_up(prev.close,prev.high,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
-        def dn_prev(v):
-            return self._cross_down(prev.close,prev.low,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
-        prev_any_buy = any([
-            self.cfg.use_pd and up_prev(levels["pdh"]),
-            self.cfg.use_weekly and up_prev(levels["weekly_high"]),
-            self.cfg.use_monthly and up_prev(levels["monthly_high"]),
-            self.cfg.use_52_week and up_prev(levels["year_high"]),
-            self.cfg.use_ath and up_prev(levels["ath"]),
-        ])
-        prev_any_sell = any([
-            self.cfg.use_pd and dn_prev(levels["pdl"]),
-            self.cfg.use_weekly and dn_prev(levels["weekly_low"]),
-            self.cfg.use_monthly and dn_prev(levels["monthly_low"]),
-            self.cfg.use_52_week and dn_prev(levels["year_low"]),
-            self.cfg.use_ath and dn_prev(levels["atl"]),
-        ])
-        fresh_buy = any_buy and not prev_any_buy
-        fresh_sell = any_sell and not prev_any_sell
 
-        opening_buy = self.cfg.use_opening_candle and is0915 and extreme and bull and fresh_buy
-        opening_sell = self.cfg.use_opening_candle and is0915 and extreme and bear and fresh_sell
-        master_avg = self._sma((x.high-x.low).shift(1), self.cfg.master_lookback).iloc[-1]
-        large_range = pd.notna(master_avg) and candle_range >= master_avg*self.cfg.master_range_multiplier
-        master_vol_ok = (not self.cfg.master_needs_extreme_volume) or extreme
-        master = in_scan and large_range and master_vol_ok
-        master_buy = self.cfg.use_master_candle and master and extreme and bull and fresh_buy
-        master_sell = self.cfg.use_master_candle and master and extreme and bear and fresh_sell
+        def first_break_up(level: float) -> bool:
+            if pd.isna(level):
+                return False
+            if self.cfg.break_trigger_mode == "Wick Touch":
+                return prev.high < level and row.high >= level
+            return prev.close <= level and row.close > level
 
-        last_signal_exists = False
-        signal_cooldown_ok = True
-        # Confirmation requires BOTH a fresh break of ANY enabled key level
-        # AND EXTREME volume. Standard volume is not sufficient.
-        standard_bull = in_scan and fresh_buy and extreme and (not self.cfg.use_ema_filter or price_above) and signal_cooldown_ok
-        standard_bear = in_scan and fresh_sell and extreme and (not self.cfg.use_ema_filter or price_below) and signal_cooldown_ok
+        def first_break_down(level: float) -> bool:
+            if pd.isna(level):
+                return False
+            if self.cfg.break_trigger_mode == "Wick Touch":
+                return prev.low > level and row.low <= level
+            return prev.close >= level and row.close < level
+
+        first_buys = {
+            "PDH": self.cfg.use_pd and first_break_up(levels["pdh"]),
+            "WEEKLY HIGH": self.cfg.use_weekly and first_break_up(levels["weekly_high"]),
+            "MONTHLY HIGH": self.cfg.use_monthly and first_break_up(levels["monthly_high"]),
+            "52W HIGH": self.cfg.use_52_week and first_break_up(levels["year_high"]),
+            "ATH": self.cfg.use_ath and first_break_up(levels["ath"]),
+        }
+        first_sells = {
+            "PDL": self.cfg.use_pd and first_break_down(levels["pdl"]),
+            "WEEKLY LOW": self.cfg.use_weekly and first_break_down(levels["weekly_low"]),
+            "MONTHLY LOW": self.cfg.use_monthly and first_break_down(levels["monthly_low"]),
+            "52W LOW": self.cfg.use_52_week and first_break_down(levels["year_low"]),
+            "ATL": self.cfg.use_ath and first_break_down(levels["atl"]),
+        }
+
+        buy_names = [k for k, v in first_buys.items() if v]
+        sell_names = [k for k, v in first_sells.items() if v]
+        any_buy, any_sell = bool(buy_names), bool(sell_names)
+
+        # Highest-priority level wins when more than one level breaks on the
+        # same candle. This is only a label/score choice; the trigger remains
+        # the first break candle itself.
+        buy_name = next((k for k in ["ATH","52W HIGH","MONTHLY HIGH","WEEKLY HIGH","PDH"] if first_buys.get(k)), "NONE")
+        sell_name = next((k for k in ["ATL","52W LOW","MONTHLY LOW","WEEKLY LOW","PDL"] if first_sells.get(k)), "NONE")
+        score_map = {"ATH":100,"52W HIGH":80,"MONTHLY HIGH":60,"WEEKLY HIGH":40,"PDH":20,
+                     "ATL":100,"52W LOW":80,"MONTHLY LOW":60,"WEEKLY LOW":40,"PDL":20}
+        level_key_map = {
+            "PDH": "pdh", "PDL": "pdl", "WEEKLY HIGH": "weekly_high",
+            "WEEKLY LOW": "weekly_low", "MONTHLY HIGH": "monthly_high",
+            "MONTHLY LOW": "monthly_low", "52W HIGH": "year_high",
+            "52W LOW": "year_low", "ATH": "ath", "ATL": "atl",
+        }
+
+        # The break and volume must occur on this exact candle. There is no
+        # delayed "master candle" confirmation on a later candle.
+        standard_bull = (
+            in_scan and any_buy and extreme
+            and (not self.cfg.use_ema_filter or price_above)
+        )
+        standard_bear = (
+            in_scan and any_sell and extreme
+            and (not self.cfg.use_ema_filter or price_below)
+        )
+
         if self.cfg.signal_mode == "QUALITY PRIME":
             standard_bull &= strong_bull and range_expanded
             standard_bear &= strong_bear and range_expanded
+
         active_buy_level = levels[level_key_map[buy_name]] if buy_name != "NONE" else np.nan
         active_sell_level = levels[level_key_map[sell_name]] if sell_name != "NONE" else np.nan
-        bull_follow = bool(pd.notna(active_buy_level) and row.close > active_buy_level and row.close > x.close.iloc[-2] and bull)
-        bear_follow = bool(pd.notna(active_sell_level) and row.close < active_sell_level and row.close < x.close.iloc[-2] and bear)
+        bull_follow = bool(pd.notna(active_buy_level) and row.close > active_buy_level and row.close > prev.close and bull)
+        bear_follow = bool(pd.notna(active_sell_level) and row.close < active_sell_level and row.close < prev.close and bear)
         standard_bull &= (not self.cfg.require_follow_through or bull_follow)
         standard_bear &= (not self.cfg.require_follow_through or bear_follow)
-        bull_base = in_scan and (opening_buy or master_buy or standard_bull)
-        bear_base = in_scan and (opening_sell or master_sell or standard_bear)
+
+        # Only the first level-break candle can confirm a signal.
+        bull_base = standard_bull
+        bear_base = standard_bear
+        opening_buy = False
+        opening_sell = False
+        master_buy = False
+        master_sell = False
 
         vwap = x["close"].iloc[-1]  # replaced below by session VWAP
         session_date = ts.date()
