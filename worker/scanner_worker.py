@@ -12,6 +12,7 @@ import pandas as pd
 from engine import PrimeConfig, PrimeEngine
 from worker.instruments import load_fno_stock_instruments
 from worker.supabase_store import SupabaseStore
+from worker.sector_ranker import SectorRanker
 from worker.telegram import send_confirmed
 from worker.upstox_feed import UpstoxV3Feed
 
@@ -34,6 +35,7 @@ class ScannerWorker:
             x["instrument_key"]: x.get("company_name") or x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
             for x in self.instruments
         }
+        self.sector_ranker = SectorRanker()
         self.feed = self._new_feed()
         self.running = True
         self.captured_count = 0
@@ -122,9 +124,14 @@ class ScannerWorker:
                 continue
 
             try:
+                # Sector context is used only for scoring. It never creates
+                # a signal and never overrides the first-break rule.
+                direction_hint = "BUY" if frame["close"].iloc[-1] > frame["close"].iloc[-2] else "SELL"
+                sector_context = self.sector_ranker.get(symbol, direction_hint)
                 result: dict[str, Any] = self.engine.evaluate(
-                    frame, timeframe, context=None
+                    frame, timeframe, context=sector_context
                 )
+                result.update(sector_context)
             except Exception as exc:
                 self._heartbeat("ERROR", str(exc))
                 print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc!r}")
