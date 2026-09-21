@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any, Callable
 import time
+import threading
 
 import pandas as pd
 import requests
@@ -29,6 +30,7 @@ class UpstoxV3Feed:
         self._last_emitted_ts: dict[str, pd.Timestamp] = {}
         self._message_count = 0
         self._last_message_log = 0.0
+        self._closed = threading.Event()
 
         self.streamer = self._build_streamer()
 
@@ -62,12 +64,14 @@ class UpstoxV3Feed:
         self._callbacks.append(callback)
 
     def _on_open(self, *_args: Any) -> None:
+        self._closed.clear()
         print("Upstox V3 WebSocket connected")
 
     def _on_error(self, error: Any) -> None:
         print(f"Upstox V3 WebSocket error: {error}")
 
     def _on_close(self, *_args: Any) -> None:
+        self._closed.set()
         print("Upstox V3 WebSocket closed")
 
     @staticmethod
@@ -202,4 +206,9 @@ class UpstoxV3Feed:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
     def connect(self) -> None:
+        self._closed.clear()
         self.streamer.connect()
+
+    def wait_until_closed(self, timeout: float = 3600) -> bool:
+        """Wait while the SDK owns the active websocket connection."""
+        return self._closed.wait(timeout)
