@@ -209,13 +209,13 @@ class PrimeEngine:
         sell_names = [k for k,v in sells.items() if v]
         any_buy, any_sell = bool(buy_names), bool(sell_names)
 
-        # STRICT PRIME SIGNAL CORE:
-        # A confirmed BUY must be a fresh PDH break.
-        # A confirmed SELL must be a fresh PDL break.
-        # Other levels (weekly/monthly/52W/ATH) remain available as context,
-        # but they cannot independently create a confirmed signal.
-        buy_name = "PDH" if buys.get("PDH") else "NONE"
-        sell_name = "PDL" if sells.get("PDL") else "NONE"
+        # PRIME SIGNAL CORE:
+        # Any enabled key level can trigger a signal:
+        # PDH/PDL, Weekly, Monthly, 52W, ATH/ATL.
+        # The level must be a fresh break and the signal candle must have
+        # EXTREME volume. No single level is privileged over the others.
+        buy_name = next((k for k in ["ATH","52W HIGH","MONTHLY HIGH","WEEKLY HIGH","PDH"] if buys.get(k)), "NONE")
+        sell_name = next((k for k in ["ATL","52W LOW","MONTHLY LOW","WEEKLY LOW","PDL"] if sells.get(k)), "NONE")
         score_map = {"ATH":100,"52W HIGH":80,"MONTHLY HIGH":60,"WEEKLY HIGH":40,"PDH":20,
                      "ATL":100,"52W LOW":80,"MONTHLY LOW":60,"WEEKLY LOW":40,"PDL":20}
         # Display names above are intentionally human-readable, while the
@@ -236,26 +236,38 @@ class PrimeEngine:
             return self._cross_up(prev.close,prev.high,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
         def dn_prev(v):
             return self._cross_down(prev.close,prev.low,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
-        prev_pdh_break = self.cfg.use_pd and up_prev(levels["pdh"])
-        prev_pdl_break = self.cfg.use_pd and dn_prev(levels["pdl"])
-        fresh_pdh_buy = bool(self.cfg.use_pd and buys.get("PDH") and not prev_pdh_break)
-        fresh_pdl_sell = bool(self.cfg.use_pd and sells.get("PDL") and not prev_pdl_break)
+        prev_any_buy = any([
+            self.cfg.use_pd and up_prev(levels["pdh"]),
+            self.cfg.use_weekly and up_prev(levels["weekly_high"]),
+            self.cfg.use_monthly and up_prev(levels["monthly_high"]),
+            self.cfg.use_52_week and up_prev(levels["year_high"]),
+            self.cfg.use_ath and up_prev(levels["ath"]),
+        ])
+        prev_any_sell = any([
+            self.cfg.use_pd and dn_prev(levels["pdl"]),
+            self.cfg.use_weekly and dn_prev(levels["weekly_low"]),
+            self.cfg.use_monthly and dn_prev(levels["monthly_low"]),
+            self.cfg.use_52_week and dn_prev(levels["year_low"]),
+            self.cfg.use_ath and dn_prev(levels["atl"]),
+        ])
+        fresh_buy = any_buy and not prev_any_buy
+        fresh_sell = any_sell and not prev_any_sell
 
-        opening_buy = self.cfg.use_opening_candle and is0915 and extreme and bull and fresh_pdh_buy
-        opening_sell = self.cfg.use_opening_candle and is0915 and extreme and bear and fresh_pdl_sell
+        opening_buy = self.cfg.use_opening_candle and is0915 and extreme and bull and fresh_buy
+        opening_sell = self.cfg.use_opening_candle and is0915 and extreme and bear and fresh_sell
         master_avg = self._sma((x.high-x.low).shift(1), self.cfg.master_lookback).iloc[-1]
         large_range = pd.notna(master_avg) and candle_range >= master_avg*self.cfg.master_range_multiplier
         master_vol_ok = (not self.cfg.master_needs_extreme_volume) or extreme
         master = in_scan and large_range and master_vol_ok
-        master_buy = self.cfg.use_master_candle and master and extreme and bull and fresh_pdh_buy
-        master_sell = self.cfg.use_master_candle and master and extreme and bear and fresh_pdl_sell
+        master_buy = self.cfg.use_master_candle and master and extreme and bull and fresh_buy
+        master_sell = self.cfg.use_master_candle and master and extreme and bear and fresh_sell
 
         last_signal_exists = False
         signal_cooldown_ok = True
-        # Confirmation requires BOTH a fresh PDH/PDL cross AND extreme volume.
-        # Standard volume is no longer sufficient for a confirmed signal.
-        standard_bull = in_scan and fresh_pdh_buy and extreme and (not self.cfg.use_ema_filter or price_above) and signal_cooldown_ok
-        standard_bear = in_scan and fresh_pdl_sell and extreme and (not self.cfg.use_ema_filter or price_below) and signal_cooldown_ok
+        # Confirmation requires BOTH a fresh break of ANY enabled key level
+        # AND EXTREME volume. Standard volume is not sufficient.
+        standard_bull = in_scan and fresh_buy and extreme and (not self.cfg.use_ema_filter or price_above) and signal_cooldown_ok
+        standard_bear = in_scan and fresh_sell and extreme and (not self.cfg.use_ema_filter or price_below) and signal_cooldown_ok
         if self.cfg.signal_mode == "QUALITY PRIME":
             standard_bull &= strong_bull and range_expanded
             standard_bear &= strong_bear and range_expanded
@@ -361,7 +373,7 @@ class PrimeEngine:
             "range_expansion": range_exp, "range_expanded": range_expanded, "compression_expansion": compression_expansion,
             "prime_score": prime_score, "grade": grade,
             "confluence": {"bull":conf_bull,"bear":conf_bear},
-            "core_logic": "PDH + EXTREME VOLUME" if bull_base else "PDL + EXTREME VOLUME" if bear_base else "—",
+            "core_logic": f"{buy_name} + EXTREME VOLUME" if bull_base else f"{sell_name} + EXTREME VOLUME" if bear_base else "—",
             "blocked_by": " ".join(block) if block else "—",
             "risk": {"entry":float(row.close) if bull_confirm or bear_confirm else None,"stop_loss":float(sl) if sl is not None else None,"risk_per_share":float(risk_share) if risk_share is not None else None,"quantity":qty,"target1":t1,"target2":t2,"target3":t3},
             "flags": {"opening_buy":opening_buy,"opening_sell":opening_sell,"master_buy":master_buy,"master_sell":master_sell,"standard_buy":standard_bull,"standard_sell":standard_bear,"fake_bull":fake_bull,"fake_bear":fake_bear,"prime_quality":prime_score is not None and prime_score>=self.cfg.prime_threshold},
