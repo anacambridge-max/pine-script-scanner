@@ -38,6 +38,8 @@ Vercel is intentionally not used for a persistent broker WebSocket. The worker i
 - Optional five-check confluence gate.
 - Fake breakout and WATCH/SETUP/CONFIRMED state machine.
 - Prime Score, grade, SL, R targets and risk quantity without SMC dependencies.
+- SMC, BOS/CHoCH, Liquidity Sweep, FVG and Order Block confirmation logic is removed from the scanner.
+- Confirmed signals are driven by enabled key levels (PDH/PDL, weekly, monthly, 52-week, ATH/ATL), fresh close-confirmed breaks and extreme volume; no SMC gate is applied.
 - Unit-testable pandas implementation.
 
 ## Run locally
