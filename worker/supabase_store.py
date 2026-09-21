@@ -109,7 +109,7 @@ class SupabaseStore:
                     )
                 )
             ),
-            "score_breakdown": {},
+            "score_breakdown": result.get("score_breakdown") or {},
             "reasons": result.get("flags") or {},
             "risks": {
                 "risk_per_share": risk.get("risk_per_share"),
@@ -124,6 +124,10 @@ class SupabaseStore:
                 "trigger": result.get("trigger"),
                 "company_name": company_name or symbol,
                 "full_result": result,
+                "sector": result.get("sector"),
+                "sector_change_percent": result.get("sector_change_percent"),
+                "sector_rank": result.get("sector_rank"),
+                "sector_rank_type": result.get("sector_rank_type"),
             },
         }
         row = _json_safe(row)
