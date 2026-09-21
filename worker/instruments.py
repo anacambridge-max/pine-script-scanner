@@ -30,6 +30,16 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
     eligible_underlyings: set[str] = set()
     underlying_symbols: dict[str, str] = {}
 
+    # Build a definitive NSE_EQ instrument_key -> NSE trading symbol map.
+    # Upstox NSE_EQ keys use the ISIN, while trading_symbol contains the actual
+    # NSE symbol. This prevents ISINs from appearing in the scanner dashboard.
+    for row in rows:
+        if row.get("segment") == "NSE_EQ" and row.get("instrument_type") == "EQ":
+            key = row.get("instrument_key")
+            trading_symbol = row.get("trading_symbol")
+            if key and trading_symbol:
+                underlying_symbols[str(key)] = str(trading_symbol)
+
     for row in rows:
         if row.get("segment") != "NSE_FO":
             continue
@@ -51,8 +61,9 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
                 pass
 
         eligible_underlyings.add(underlying)
+        # FUT rows also contain underlying_symbol; use it only as a fallback.
         symbol = row.get("underlying_symbol")
-        if symbol:
+        if symbol and underlying not in underlying_symbols:
             underlying_symbols[underlying] = str(symbol)
 
     if not eligible_underlyings:
