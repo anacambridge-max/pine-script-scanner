@@ -30,6 +30,7 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
     eligible_underlyings: set[str] = set()
     underlying_symbols: dict[str, str] = {}
     underlying_names: dict[str, str] = {}
+    nearest_futures: dict[str, tuple[datetime.date, str]] = {}
 
     # Build a definitive NSE_EQ instrument_key -> NSE trading symbol map.
     # Upstox NSE_EQ keys use the ISIN, while trading_symbol contains the actual
@@ -65,6 +66,17 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
                 pass
 
         eligible_underlyings.add(underlying)
+        # Keep the nearest non-expired stock-futures contract for the
+        # Chartink-style futures-volume filter.
+        if expiry is not None:
+            try:
+                expiry_date = datetime.fromtimestamp(float(expiry) / 1000).date()
+                key = row.get("instrument_key")
+                if key and (underlying not in nearest_futures or expiry_date < nearest_futures[underlying][0]):
+                    nearest_futures[underlying] = (expiry_date, str(key))
+            except (TypeError, ValueError, OverflowError):
+                pass
+
         # FUT rows also contain underlying_symbol; use it only as a fallback.
         symbol = row.get("underlying_symbol")
         if symbol and underlying not in underlying_symbols:
@@ -78,6 +90,7 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
             "instrument_key": key,
             "trading_symbol": underlying_symbols.get(key, key.split("|", 1)[-1]),
             "company_name": underlying_names.get(key, underlying_symbols.get(key, key.split("|", 1)[-1])),
+            "futures_key": nearest_futures.get(key, (None, None))[1],
         }
         for key in sorted(eligible_underlyings)
     ]
