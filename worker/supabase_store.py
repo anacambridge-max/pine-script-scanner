@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from datetime import datetime
 from typing import Any
 
 import requests
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert NaN/Infinity and nested non-JSON values into PostgREST-safe JSON."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 class SupabaseStore:
@@ -103,6 +115,7 @@ class SupabaseStore:
                 "full_result": result,
             },
         }
+        row = _json_safe(row)
 
         if already_exists:
             return False
@@ -112,7 +125,7 @@ class SupabaseStore:
             "scanner_signals",
             params={"on_conflict": "id"},
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
-            data=json.dumps(row, default=str),
+            data=json.dumps(row, default=str, allow_nan=False),
         )
         return True
 
