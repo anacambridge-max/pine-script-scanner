@@ -126,12 +126,14 @@ class ScannerWorker:
             try:
                 # Sector context is used only for scoring. It never creates
                 # a signal and never overrides the first-break rule.
-                direction_hint = "BUY" if frame["close"].iloc[-1] > frame["close"].iloc[-2] else "SELL"
-                sector_context = self.sector_ranker.get(symbol, direction_hint)
+                sector_context = self.sector_ranker.get(symbol, "")
                 result: dict[str, Any] = self.engine.evaluate(
                     frame, timeframe, context=sector_context
                 )
                 result.update(sector_context)
+                result["sector_change_percent"] = sector_context.get("sector_change")
+                result["sector_rank_type"] = (result.get("score_breakdown") or {}).get("sector_rank_type")
+                result["sector_bonus"] = (result.get("score_breakdown") or {}).get("sector_bonus", 0)
             except Exception as exc:
                 self._heartbeat("ERROR", str(exc))
                 print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc!r}")
