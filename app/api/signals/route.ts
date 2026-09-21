@@ -24,10 +24,14 @@ export async function GET(request: Request) {
   const endpoint = new URL(supabaseUrl + "/rest/v1/scanner_signals");
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
   endpoint.searchParams.set("select", columns);
-  // Show every signal generated today. The dashboard is a daily board:
-  // today's signals remain visible for the whole trading day and disappear
-  // from the board on the next day. New scanner generation remains 3m-only.
-  endpoint.searchParams.set("signal_time", `gte.${today}T00:00:00`);
+  // Dashboard follows the scanner's exact signal window:
+  // 09:15 through 10:00 IST, 3-minute confirmed standard breaks only.
+  // This prevents legacy 1m/5m and later-in-the-day rows from appearing.
+  endpoint.searchParams.set("signal_time", `gte.${today}T09:15:00`);
+  endpoint.searchParams.set("signal_time", `lt.${today}T10:00:00`);
+  endpoint.searchParams.set("metadata->>timeframe", "eq.3");
+  endpoint.searchParams.set("signal_state", "eq.CONFIRMED");
+  endpoint.searchParams.set("setup", "eq.STANDARD BREAK");
   endpoint.searchParams.set("order", "signal_time.desc.nullslast");
   endpoint.searchParams.set("limit", String(limit));
 
