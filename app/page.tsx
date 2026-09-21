@@ -191,25 +191,58 @@ export default function Home() {
 
       <style jsx>{`
         * { box-sizing: border-box; }
-        .page { min-height: 100vh; padding: 28px; background: #070b12; color: #e8edf5; font-family: Arial, sans-serif; }
-        .header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; max-width:1600px; margin:0 auto 24px; }
-        .eyebrow { color:#7f8da3; font-size:11px; letter-spacing:2px; font-weight:700; }
-        h1 { margin:5px 0 4px; font-size:34px; letter-spacing:-1px; } p { margin:0; color:#8794a8; }
-        .live-pill { border:1px solid #263449; background:#0c1320; border-radius:999px; padding:10px 14px; font-size:12px; font-weight:700; color:#b9c6d8; }
-        .dot { display:inline-block; width:7px; height:7px; background:#26d47b; border-radius:50%; margin-right:7px; box-shadow:0 0 10px #26d47b; }
-        .cards { max-width:1600px; margin:0 auto 18px; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-        .card { background:#0c1320; border:1px solid #1d293a; border-radius:12px; padding:16px 18px; }
-        .card span { display:block; color:#7f8da3; font-size:11px; font-weight:700; letter-spacing:.6px; } .card strong { display:block; margin-top:7px; font-size:28px; }
-        .card.buy strong,.buyText { color:#2bd681; } .card.sell strong,.sellText { color:#ff637d; }
-        .toolbar { max-width:1600px; margin:0 auto 14px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-        .tabs { display:flex; gap:7px; flex-wrap:wrap; } .tab { border:1px solid #263449; background:#0c1320; color:#92a0b5; padding:9px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700; }
-        .tab.active { background:#18243a; color:#f1f5fa; border-color:#3a4e6b; } .error { max-width:1600px; margin:0 auto 14px; padding:12px 14px; background:#29141b; color:#ff9bad; border:1px solid #5a2531; border-radius:9px; }
-        .tableWrap { max-width:1600px; margin:0 auto; overflow-x:auto; background:#0c1320; border:1px solid #1d293a; border-radius:12px; }
-        table { width:100%; border-collapse:collapse; min-width:1250px; } th { color:#6f7d92; font-size:10px; text-align:left; letter-spacing:.6px; padding:12px 10px; border-bottom:1px solid #1d293a; white-space:nowrap; }
-        td { padding:12px 10px; border-bottom:1px solid #141e2c; font-size:12px; white-space:nowrap; color:#b8c3d3; } tr:last-child td { border-bottom:0; }
-         .symbol { color:#fff; font-weight:700; } .company { display:block; margin-top:4px; color:#718097; font-size:10px; font-weight:500; max-width:190px; overflow:hidden; text-overflow:ellipsis; } .empty { height:190px; text-align:center; vertical-align:middle; color:#758399; } .empty strong,.empty span { display:block; } .empty strong { color:#aeb9c9; margin-bottom:7px; font-size:14px; }
-        footer { max-width:1600px; margin:12px auto 0; color:#657389; font-size:11px; }
-        @media (max-width:800px) { .page { padding:16px; } .cards { grid-template-columns:repeat(2,1fr); } .header { flex-direction:column; } }
+        .page { min-height:100vh; padding:26px 28px 18px; background:radial-gradient(circle at 50% -20%,#12203a 0,#080d16 38%,#060a11 100%); color:#e8edf5; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+        .header,.cards,.toolbar,.tableWrap,footer,.error { max-width:1680px; margin-left:auto; margin-right:auto; }
+        .header { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:22px; }
+        .brandRow { display:flex; align-items:center; gap:12px; }
+        .logoMark { width:38px; height:38px; border-radius:10px; display:grid; place-items:center; background:linear-gradient(135deg,#1d7cff,#35d49a); color:white; font-weight:900; box-shadow:0 8px 24px rgba(29,124,255,.25); }
+        .eyebrow { color:#7e8da5; font-size:10px; letter-spacing:2.2px; font-weight:800; }
+        h1 { margin:2px 0 2px; font-size:30px; letter-spacing:-1.1px; line-height:1.1; }
+        p { margin:9px 0 0 50px; color:#7e8da5; font-size:12px; }
+        .headerRight { display:flex; align-items:center; gap:12px; }
+        .marketBadge,.modePill { display:flex; align-items:center; gap:7px; border:1px solid #223149; background:rgba(13,21,34,.82); border-radius:999px; padding:9px 12px; color:#aebbd0; font-size:10px; font-weight:800; letter-spacing:.5px; }
+        .pulse,.greenDot { width:7px; height:7px; border-radius:50%; background:#28d486; box-shadow:0 0 12px rgba(40,212,134,.8); }
+        .refreshText { color:#64748a; font-size:11px; } .refreshText b { color:#a9b6c9; }
+        .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+        .card { position:relative; overflow:hidden; background:linear-gradient(180deg,rgba(16,26,42,.96),rgba(10,17,28,.96)); border:1px solid #1d2a3d; border-radius:14px; padding:15px 17px; box-shadow:0 12px 30px rgba(0,0,0,.16); }
+        .card:after { content:""; position:absolute; right:-25px; bottom:-45px; width:100px; height:100px; border-radius:50%; background:rgba(72,113,180,.07); }
+        .cardTop { display:flex; justify-content:space-between; align-items:center; color:#72829a; font-size:10px; font-weight:800; letter-spacing:.8px; }
+        .miniIcon { color:#52647e; font-size:14px; } .card strong { display:block; margin-top:8px; font-size:29px; letter-spacing:-1px; } .card small { display:block; margin-top:3px; color:#64748a; font-size:10px; }
+        .card.buy strong,.buyText { color:#31d58a; } .card.sell strong,.sellText { color:#ff6680; }
+        .toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+        .toolbarLeft { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .tabs { display:flex; gap:5px; padding:4px; border:1px solid #1b283a; background:#0a111c; border-radius:10px; }
+        .tab { border:0; background:transparent; color:#738299; padding:8px 12px; border-radius:7px; cursor:pointer; font-size:10px; font-weight:800; letter-spacing:.3px; }
+        .tab:hover { color:#cbd5e4; } .tab.active { background:#1a2941; color:#f5f8fc; box-shadow:inset 0 0 0 1px #304665; }
+        .modePill { padding:8px 11px; font-size:9px; }
+        .searchBox { display:flex; align-items:center; gap:8px; width:280px; border:1px solid #223149; background:#0b1320; border-radius:9px; padding:0 11px; color:#63738b; }
+        .searchBox span { font-size:18px; } .searchBox input { width:100%; border:0; outline:0; background:transparent; color:#dbe3ef; padding:9px 0; font-size:11px; } .searchBox input::placeholder { color:#53627a; }
+        .error { margin-bottom:12px; padding:11px 14px; background:#2a151d; color:#ff9bac; border:1px solid #592733; border-radius:9px; font-size:12px; }
+        .tableWrap { overflow:hidden; background:rgba(10,17,28,.96); border:1px solid #1c293b; border-radius:14px; box-shadow:0 16px 45px rgba(0,0,0,.2); }
+        .tableHead { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #1b2739; background:linear-gradient(180deg,#101a2a,#0c1421); }
+        .tableHead strong { display:block; font-size:13px; color:#e5ebf4; } .tableHead span { color:#66768e; font-size:10px; margin-left:9px; }
+        .legend { display:flex; gap:14px; color:#687890; font-size:10px; } .legend i { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; } .legendBuy { background:#31d58a; } .legendSell { background:#ff6680; }
+        .tableScroll { overflow:auto; max-height:calc(100vh - 330px); scrollbar-width:thin; scrollbar-color:#26364e #0a111b; }
+        table { width:100%; border-collapse:separate; border-spacing:0; min-width:1450px; }
+        th { position:sticky; top:0; z-index:2; background:#0d1725; border-bottom:1px solid #26354b; color:#6f8098; font-size:9px; text-align:left; letter-spacing:.65px; padding:10px 11px; white-space:nowrap; }
+        th.right,.right { text-align:right; }
+        .sortButton { width:100%; border:0; background:transparent; color:inherit; cursor:pointer; display:flex; align-items:center; gap:7px; justify-content:flex-start; font:inherit; letter-spacing:inherit; padding:0; text-align:inherit; }
+        th.right .sortButton { justify-content:flex-end; } .sortButton:hover { color:#dbe5f3; } .sortButton span { color:#3f536e; font-size:11px; } th:hover .sortButton span { color:#8ca0ba; }
+        tbody tr { transition:background .12s ease; } tbody tr:nth-child(even) { background:rgba(255,255,255,.012); } tbody tr:hover { background:rgba(50,105,170,.09); }
+        td { padding:11px; border-bottom:1px solid #141f2e; color:#aebacd; font-size:11px; white-space:nowrap; vertical-align:middle; }
+        tbody tr:last-child td { border-bottom:0; }
+        .timeCell { color:#7f90a8; font-variant-numeric:tabular-nums; } .symbol { color:#f1f5fa; font-weight:800; } .symbol small { display:block; max-width:175px; overflow:hidden; text-overflow:ellipsis; margin-top:3px; color:#687990; font-size:9px; font-weight:500; }
+        .signalBadge { display:inline-flex; flex-direction:column; align-items:center; min-width:67px; padding:4px 8px; border-radius:6px; line-height:1.05; border:1px solid; } .signalBadge b { font-size:10px; letter-spacing:.6px; } .signalBadge em { margin-top:2px; font-size:7px; font-style:normal; opacity:.65; }
+        .buyBadge { color:#34db91; border-color:#1e6648; background:#0d251c; } .sellBadge { color:#ff7087; border-color:#68303e; background:#2a141b; }
+        .tfBadge { display:inline-block; min-width:29px; text-align:center; padding:4px 6px; border-radius:5px; background:#151f30; border:1px solid #26364e; color:#aebbd0; font-size:9px; font-weight:800; }
+        .score { display:inline-grid; place-items:center; min-width:35px; padding:4px 7px; border-radius:5px; font-weight:900; font-variant-numeric:tabular-nums; } .score.high { color:#42dda0; background:#0c2a20; border:1px solid #1a5b43; } .score.mid { color:#ffd27a; background:#2b2515; border:1px solid #62522b; } .score.low { color:#ff889c; background:#2a171e; border:1px solid #5a2936; }
+        .grade { color:#bac6d8; font-size:10px; font-weight:700; } .sectorCell small { display:block; margin-top:3px; color:#64758d; font-size:9px; } .rankBadge { display:inline-block; padding:4px 6px; border-radius:5px; background:#151f2e; color:#91a1b8; font-size:9px; font-weight:800; } .rankBadge.top { color:#f0c56d; background:#2a2415; border:1px solid #5c4c27; }
+        .num { font-variant-numeric:tabular-nums; color:#bdc8d8; } .sl { color:#ff8799; } .target { color:#65dba5; }
+        .setupBadge { color:#8fa3be; background:#111b2a; border:1px solid #25354b; padding:4px 7px; border-radius:5px; font-size:8px; font-weight:800; letter-spacing:.4px; }
+        .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
+        .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
+        footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .tableScroll { max-height:calc(100vh - 430px); } }
       `}</style>
     </main>
   );
