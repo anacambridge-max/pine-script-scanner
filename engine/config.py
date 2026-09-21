@@ -7,7 +7,7 @@ class PrimeConfig:
     allow_5m: bool = False
     timezone: str = "Asia/Kolkata"
     scan_start: str = "09:15"
-    scan_end: str = "15:25"
+    scan_end: str = "10:00"
     signal_mode: str = "FAST PRIME"
 
     # SMC / BOS / CHoCH / Liquidity Sweep / FVG / Order Block logic is
