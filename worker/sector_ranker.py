@@ -39,12 +39,14 @@ class SectorRanker:
         self._session.headers.update(NSE_HEADERS)
 
     def _get(self, path: str) -> dict[str, Any]:
-        # NSE occasionally requires the homepage cookie before API calls.
-        try:
-            self._session.get(NSE_BASE, timeout=5)
-        except Exception:
-            pass
         r = self._session.get(NSE_BASE + path, timeout=8)
+        if r.status_code in (401, 403):
+            # Warm the NSE session once and retry.
+            try:
+                self._session.get(NSE_BASE, timeout=5)
+            except Exception:
+                pass
+            r = self._session.get(NSE_BASE + path, timeout=8)
         r.raise_for_status()
         return r.json()
 
