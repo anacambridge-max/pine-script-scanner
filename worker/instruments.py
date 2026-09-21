@@ -29,6 +29,7 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
     today = datetime.now().date()
     eligible_underlyings: set[str] = set()
     underlying_symbols: dict[str, str] = {}
+    underlying_names: dict[str, str] = {}
 
     # Build a definitive NSE_EQ instrument_key -> NSE trading symbol map.
     # Upstox NSE_EQ keys use the ISIN, while trading_symbol contains the actual
@@ -37,8 +38,11 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
         if row.get("segment") == "NSE_EQ" and row.get("instrument_type") == "EQ":
             key = row.get("instrument_key")
             trading_symbol = row.get("trading_symbol")
+            company_name = row.get("name")
             if key and trading_symbol:
                 underlying_symbols[str(key)] = str(trading_symbol)
+                if company_name:
+                    underlying_names[str(key)] = str(company_name)
 
     for row in rows:
         if row.get("segment") != "NSE_FO":
@@ -73,6 +77,7 @@ def load_fno_stock_instruments() -> list[dict[str, Any]]:
         {
             "instrument_key": key,
             "trading_symbol": underlying_symbols.get(key, key.split("|", 1)[-1]),
+            "company_name": underlying_names.get(key, underlying_symbols.get(key, key.split("|", 1)[-1])),
         }
         for key in sorted(eligible_underlyings)
     ]
