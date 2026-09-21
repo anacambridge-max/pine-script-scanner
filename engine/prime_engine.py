@@ -76,8 +76,20 @@ class PrimeEngine:
         # These are derived from the supplied history. The broker layer should
         # seed enough historical data before the live scan begins.
         d = x[x.timestamp.dt.date < day]
-        pdh = float(d.high[d.timestamp.dt.date == prev_day].max()) if not d.empty else math.nan
-        pdl = float(d.low[d.timestamp.dt.date == prev_day].min()) if not d.empty else math.nan
+
+        # PDH/PDL must use the PREVIOUS TRADING DAY, not calendar yesterday.
+        # On Monday (or after a holiday), calendar yesterday can be Sunday/non-
+        # trading day, which would incorrectly make PDH/PDL NaN.
+        if not d.empty:
+            historical_days = sorted(d.timestamp.dt.date.unique())
+            previous_trading_day = historical_days[-1]
+            previous_day_rows = d[d.timestamp.dt.date == previous_trading_day]
+            pdh = float(previous_day_rows["high"].max())
+            pdl = float(previous_day_rows["low"].min())
+        else:
+            previous_trading_day = None
+            pdh = math.nan
+            pdl = math.nan
 
         # Use timezone-naive local timestamps for calendar grouping/comparison.
         # This avoids pandas PeriodArray timezone warnings/errors on recent pandas.
