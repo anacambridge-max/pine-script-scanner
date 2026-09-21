@@ -368,8 +368,15 @@ class PrimeEngine:
         sector = (context or {}).get("sector") if isinstance(context, dict) else None
         sector_change = (context or {}).get("sector_change") if isinstance(context, dict) else None
         sector_rank = (context or {}).get("sector_rank") if isinstance(context, dict) else None
-        sector_rank_type = (context or {}).get("sector_rank_type") if isinstance(context, dict) else None
-        sector_bonus = float((context or {}).get("sector_bonus") or 0) if isinstance(context, dict) else 0.0
+        sector_rank_type = None
+        sector_bonus = 0.0
+        if sector_rank is not None and int(sector_rank) <= 3 and sector_change is not None:
+            if bull_confirm and float(sector_change) > 0:
+                sector_bonus = 10.0
+                sector_rank_type = "TOP 3 GAINER"
+            elif bear_confirm and float(sector_change) < 0:
+                sector_bonus = 10.0
+                sector_rank_type = "TOP 3 LOSER"
 
         volume_score = min(40.0, max(0.0, effective_vol * 20.0))
         break_score = 30.0 if (bull_confirm or bear_confirm) else 0.0
