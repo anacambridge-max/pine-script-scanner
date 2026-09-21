@@ -7,7 +7,7 @@ class PrimeConfig:
     allow_5m: bool = True
     timezone: str = "Asia/Kolkata"
     scan_start: str = "09:15"
-    scan_end: str = "09:55"
+    scan_end: str = "15:25"
     signal_mode: str = "FAST PRIME"
 
     volume_length: int = 20
