@@ -361,17 +361,33 @@ class PrimeEngine:
         near_pdh, near_pdl = dist_pdh <= 1, dist_pdl <= 1
         bull_setup, bear_setup = in_scan and near_pdh and row.close >= levels["pdh"], in_scan and near_pdl and row.close <= levels["pdl"]
 
-        level_score = score_map[buy_name] if bull_confirm else score_map[sell_name] if bear_confirm else 0
-        volume_score = 20 if effective_vol>=6.5 else 18 if effective_vol>=4 else 15 if effective_vol>=2 else 10 if effective_vol>=1.5 else 5 if effective_vol>=1.2 else 0
-        lev_score = level_score/100*15
-        body_score = min(15,max(0,body_ratio*15))
-        close_score = (bull_loc if bull_confirm else bear_loc)*10
-        ema_score = min(15,max(0,ema_dist/self.cfg.ema_full_separation_pct*15)) if self.cfg.ema_full_separation_pct>0 else 0
-        range_score = 10 if range_exp>=2 else 9 if range_exp>=1.75 else 8 if range_exp>=1.5 else 6 if range_exp>=1.3 else 3 if range_exp>=1.1 else 0
-        mins_from_open = tod.hour*60+tod.minute-555
-        timing_score = 10 if mins_from_open<=5 else 9 if mins_from_open<=10 else 8 if mins_from_open<=15 else 6 if mins_from_open<=20 else 4 if mins_from_open<=30 else 2 if mins_from_open<=45 else 0
-        compression_score = 5 if compression_expansion else 2 if range_expanded else 0
-        prime_score = min(100,max(0,volume_score+lev_score+body_score+close_score+ema_score+range_score+timing_score+compression_score)) if (bull_confirm or bear_confirm) else None
+        # SCANNER SCORE (100):
+        # 40 = 3m volume strength, 30 = first PDH/PDL close-break,
+        # 20 = signal-candle quality, 10 = sector top-3 alignment.
+        # Sector context is supplied by the live NSE sector ranker.
+        sector = (context or {}).get("sector") if isinstance(context, dict) else None
+        sector_change = (context or {}).get("sector_change") if isinstance(context, dict) else None
+        sector_rank = (context or {}).get("sector_rank") if isinstance(context, dict) else None
+        sector_rank_type = (context or {}).get("sector_rank_type") if isinstance(context, dict) else None
+        sector_bonus = float((context or {}).get("sector_bonus") or 0) if isinstance(context, dict) else 0.0
+
+        volume_score = min(40.0, max(0.0, effective_vol * 20.0))
+        break_score = 30.0 if (bull_confirm or bear_confirm) else 0.0
+        close_quality = bull_loc if bull_confirm else bear_loc if bear_confirm else 0.0
+        body_quality = min(1.0, max(0.0, body_ratio))
+        candle_score = min(20.0, body_quality * 10.0 + close_quality * 10.0)
+        prime_score = min(100.0, volume_score + break_score + candle_score + sector_bonus) if (bull_confirm or bear_confirm) else None
+        score_breakdown = {
+            "volume": round(volume_score, 2),
+            "first_pdh_pdl_break": round(break_score, 2),
+            "candle_quality": round(candle_score, 2),
+            "sector_bonus": round(sector_bonus, 2),
+            "total": round(prime_score, 2) if prime_score is not None else None,
+            "sector": sector,
+            "sector_change_percent": round(float(sector_change), 2) if sector_change is not None else None,
+            "sector_rank": int(sector_rank) if sector_rank is not None else None,
+            "sector_rank_type": sector_rank_type,
+        }
 
         grade = "—" if prime_score is None else "PRIME A+" if prime_score>=90 else "PRIME A" if prime_score>=80 else "STRONG" if prime_score>=70 else "GOOD" if prime_score>=60 else "WATCH" if prime_score>=50 else "WEAK"
         state = "FAKE BREAKOUT" if fake_bull or fake_bear else "CONFIRMED" if bull_confirm or bear_confirm else "SETUP" if bull_setup or bear_setup else "WATCH" if near_pdh or near_pdl else "NO TRADE"
