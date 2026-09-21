@@ -40,7 +40,7 @@ class SupabaseStore:
             method,
             self.base + "/rest/v1/" + path,
             headers=headers,
-            timeout=20,
+            timeout=5,
             **kwargs,
         )
         if not response.ok:
@@ -68,7 +68,7 @@ class SupabaseStore:
             self.base + "/rest/v1/scanner_signals",
             headers=self.headers,
             params={"select": "id", "id": f"eq.{signal_id}", "limit": "1"},
-            timeout=20,
+            timeout=5,
         )
         if not existing.ok:
             raise RuntimeError(
@@ -158,7 +158,7 @@ class SupabaseStore:
                 "trade_date": f"eq.{day}",
                 "limit": "1",
             },
-            timeout=20,
+            timeout=5,
         )
         if not existing.ok:
             raise RuntimeError(
@@ -172,7 +172,7 @@ class SupabaseStore:
                 headers={**self.headers, "Prefer": "return=minimal"},
                 params={"trade_date": f"eq.{day}"},
                 data=json.dumps(row),
-                timeout=20,
+                timeout=5,
             )
             if not response.ok:
                 raise RuntimeError(
