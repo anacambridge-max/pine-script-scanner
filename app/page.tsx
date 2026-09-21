@@ -22,16 +22,18 @@ const timeFmt = (value: string | null) =>
   value ? new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value)) : "—";
 
 export default function Home() {
+  type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
-  const [timeframe, setTimeframe] = useState("ALL");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
 
   async function loadSignals() {
     try {
-      const response = await fetch("/api/signals?limit=200", { cache: "no-store" });
+      const response = await fetch("/api/signals?limit=500", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to load signals");
       setSignals(payload.signals ?? []);
@@ -50,69 +52,142 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const filtered = useMemo(() => signals.filter((signal) => {
-    const sideOk = filter === "ALL" || signal.signal_type.toUpperCase().includes(filter);
-    const tf = String(signal.metadata?.timeframe ?? "").toUpperCase();
-    const tfOk = timeframe === "ALL" || tf.includes(timeframe);
-    return sideOk && tfOk;
-  }), [signals, filter, timeframe]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    const rows = signals.filter((signal) => {
+      const sideOk = filter === "ALL" || signal.signal_type.toUpperCase().includes(filter);
+      const haystack = [signal.symbol, signal.metadata?.company_name, signal.metadata?.sector, signal.setup].filter(Boolean).join(" ").toUpperCase();
+      return sideOk && (!q || haystack.includes(q));
+    });
+
+    return rows.sort((x, y) => {
+      const value = (s: Signal): string | number => {
+        switch (sort.key) {
+          case "signal_time": return s.signal_time ? new Date(s.signal_time).getTime() : 0;
+          case "symbol": return s.symbol;
+          case "signal_type": return s.signal_type;
+          case "timeframe": return Number(s.metadata?.timeframe ?? 0);
+          case "sector": return s.metadata?.sector ?? "";
+          case "sector_rank": return s.metadata?.sector_rank ?? 999;
+          case "grade": return s.grade ?? "";
+          case "setup": return s.setup ?? "";
+          default: return Number(s[sort.key] ?? -Infinity);
+        }
+      };
+      const av = value(x), bv = value(y);
+      const cmp = typeof av === "string" && typeof bv === "string"
+        ? av.localeCompare(bv)
+        : Number(av) - Number(bv);
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  }, [signals, filter, search, sort]);
+
+  const setSortKey = (key: SortKey) => {
+    setSort((current) => current.key === key
+      ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+      : { key, dir: key === "signal_time" ? "desc" : "desc" });
+  };
 
   const buys = signals.filter((s) => s.signal_type.toUpperCase().includes("BUY")).length;
   const sells = signals.filter((s) => s.signal_type.toUpperCase().includes("SELL")).length;
-  const active = signals.filter((s) => s.is_active !== false).length;
+  const avgScore = signals.length ? Math.round(signals.reduce((sum, s) => sum + Number(s.score || 0), 0) / signals.length) : 0;
+  const topSector = [...signals].filter(s => s.metadata?.sector).sort((a,b) => Number(b.score||0)-Number(a.score||0))[0]?.metadata?.sector;
+
+  const columns: { key: SortKey; label: string; align?: "right" }[] = [
+    { key: "signal_time", label: "TIME" },
+    { key: "symbol", label: "SYMBOL / COMPANY" },
+    { key: "signal_type", label: "SIGNAL" },
+    { key: "timeframe", label: "TF" },
+    { key: "score", label: "SCORE", align: "right" },
+    { key: "grade", label: "GRADE" },
+    { key: "sector", label: "SECTOR" },
+    { key: "sector_rank", label: "SECTOR RANK", align: "right" },
+    { key: "ltp", label: "LTP", align: "right" },
+    { key: "entry", label: "ENTRY", align: "right" },
+    { key: "stop_loss", label: "SL", align: "right" },
+    { key: "target1", label: "T1", align: "right" },
+    { key: "target2", label: "T2", align: "right" },
+    { key: "risk_reward", label: "R:R", align: "right" },
+    { key: "rvol", label: "RVOL", align: "right" },
+    { key: "breakout_level", label: "BREAKOUT", align: "right" },
+    { key: "setup", label: "SETUP" },
+  ];
+
+  const sortIcon = (key: SortKey) => sort.key !== key ? "↕" : sort.dir === "asc" ? "↑" : "↓";
 
   return (
     <main className="page">
       <header className="header">
-        <div><div className="eyebrow">PRIME TECHNICAL</div><h1>Live Scanner</h1><p>Confirmed intraday signals from the Supabase signal feed.</p></div>
-        <div className="live-pill"><span className="dot" /> LIVE · 5s</div>
+        <div>
+          <div className="brandRow"><div className="logoMark">P</div><div><div className="eyebrow">PRIME TECHNICAL</div><h1>Live Scanner</h1></div></div>
+          <p>Real-time F&O stock scanner · 3-minute confirmed PDH / PDL breaks</p>
+        </div>
+        <div className="headerRight"><div className="marketBadge"><span className="pulse" /> MARKET FEED</div><div className="refreshText">Auto refresh <b>5s</b></div></div>
       </header>
 
       <section className="cards">
-        <div className="card"><span>Total Signals</span><strong>{signals.length}</strong></div>
-        <div className="card buy"><span>BUY CONFIRMED</span><strong>{buys}</strong></div>
-        <div className="card sell"><span>SELL CONFIRMED</span><strong>{sells}</strong></div>
-        <div className="card"><span>Active</span><strong>{active}</strong></div>
+        <div className="card"><div className="cardTop"><span>CONFIRMED TODAY</span><span className="miniIcon">◷</span></div><strong>{signals.length}</strong><small>3-minute signals</small></div>
+        <div className="card buy"><div className="cardTop"><span>BUY CONFIRMED</span><span className="miniIcon">↗</span></div><strong>{buys}</strong><small>PDH close-break</small></div>
+        <div className="card sell"><div className="cardTop"><span>SELL CONFIRMED</span><span className="miniIcon">↘</span></div><strong>{sells}</strong><small>PDL close-break</small></div>
+        <div className="card"><div className="cardTop"><span>AVG SCORE</span><span className="miniIcon">★</span></div><strong>{avgScore}</strong><small>{topSector ? `Top signal sector: ${topSector}` : "Waiting for sector data"}</small></div>
       </section>
 
       <section className="toolbar">
-        <div className="tabs">{(["ALL", "BUY", "SELL"] as const).map((item) => (
-          <button key={item} className={filter === item ? "tab active" : "tab"} onClick={() => setFilter(item)}>
-            {item === "ALL" ? "ALL TODAY" : item + " CONFIRMED"}
-          </button>
-        ))}</div>
-        <div className="tabs">{["ALL", "1M", "3M", "5M"].map((item) => (
-          <button key={item} className={timeframe === item ? "tab active" : "tab"} onClick={() => setTimeframe(item)}>{item}</button>
-        ))}</div>
+        <div className="toolbarLeft">
+          <div className="tabs">{(["ALL", "BUY", "SELL"] as const).map((item) => (
+            <button key={item} className={filter === item ? "tab active" : "tab"} onClick={() => setFilter(item)}>
+              {item === "ALL" ? "ALL TODAY" : item === "BUY" ? "BUY CONFIRMED" : "SELL CONFIRMED"}
+            </button>
+          ))}</div>
+          <div className="modePill"><span className="greenDot" /> F&O · 3M · FIRST BREAK · 2× VOL</div>
+        </div>
+        <label className="searchBox"><span>⌕</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search symbol, company or sector…" /></label>
       </section>
 
       {error && <div className="error">{error}</div>}
 
       <section className="tableWrap">
-        <table>
-          <thead><tr>
-            {["TIME","SYMBOL / COMPANY","SIGNAL","TF","SCORE","GRADE","SECTOR","SECTOR RANK","LTP","ENTRY","SL","T1","T2","R:R","RVOL","BREAKOUT","SETUP"].map((h) => <th key={h}>{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {loading ? <tr><td colSpan={17} className="empty">Loading signal feed…</td></tr> :
-             filtered.length === 0 ? <tr><td colSpan={15} className="empty"><strong>No signals yet</strong><span>When the scanner writes confirmed signals to scanner_signals, they will appear here automatically.</span></td></tr> :
-             filtered.map((signal) => {
-               const side = signal.signal_type.toUpperCase().includes("BUY") ? "buyText" : "sellText";
-               const tf = String(signal.metadata?.timeframe ?? "—").toUpperCase();
-               return <tr key={signal.id}>
-                 <td>{timeFmt(signal.signal_time)}</td><td className="symbol"><div>{signal.symbol}</div><small className="company">{signal.metadata?.company_name ?? signal.symbol}</small></td>
-                 <td className={side}>{signal.signal_type}</td><td>{tf}</td><td>{signal.score ?? "—"}</td><td>{signal.grade ?? "—"}</td>
-                 <td>{signal.metadata?.sector ?? "—"}</td>
-                 <td>{signal.metadata?.sector_rank ? `#${signal.metadata.sector_rank} ${signal.metadata.sector_rank_type ?? ""}` : "—"}</td>
-                 <td>{fmt(signal.ltp)}</td><td>{fmt(signal.entry)}</td><td>{fmt(signal.stop_loss)}</td><td>{fmt(signal.target1)}</td>
-                 <td>{fmt(signal.target2)}</td><td>{fmt(signal.risk_reward)}</td><td>{fmt(signal.rvol)}</td><td>{fmt(signal.breakout_level)}</td><td>{signal.setup ?? "—"}</td>
-               </tr>;
-             })}
-          </tbody>
-        </table>
+        <div className="tableHead">
+          <div><strong>Confirmed Signals</strong><span>{filtered.length} rows · click any column to sort</span></div>
+          <div className="legend"><span><i className="legendBuy" /> BUY</span><span><i className="legendSell" /> SELL</span><span>Score / 100</span></div>
+        </div>
+        <div className="tableScroll">
+          <table>
+            <thead><tr>{columns.map((col) => (
+              <th key={col.key} className={col.align === "right" ? "right" : ""}>
+                <button className="sortButton" onClick={() => setSortKey(col.key)}>{col.label}<span>{sortIcon(col.key)}</span></button>
+              </th>
+            ))}</tr></thead>
+            <tbody>
+              {loading ? <tr><td colSpan={17} className="empty"><div className="spinner" /><strong>Loading scanner feed…</strong><span>Connecting to live confirmed signals</span></td></tr> :
+               filtered.length === 0 ? <tr><td colSpan={17} className="empty"><strong>No confirmed signals</strong><span>The scanner will add a row when a 3M candle closes through the first PDH/PDL break with 2× SMA20 volume.</span></td></tr> :
+               filtered.map((signal) => {
+                 const isBuy = signal.signal_type.toUpperCase().includes("BUY");
+                 const tf = String(signal.metadata?.timeframe ?? "3").toUpperCase();
+                 const rank = signal.metadata?.sector_rank;
+                 const rankType = signal.metadata?.sector_rank_type;
+                 const score = Number(signal.score ?? 0);
+                 return <tr key={signal.id}>
+                   <td className="timeCell">{timeFmt(signal.signal_time)}</td>
+                   <td className="symbol"><div>{signal.symbol}</div><small>{signal.metadata?.company_name ?? signal.symbol}</small></td>
+                   <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
+                   <td><span className="tfBadge">{tf}M</span></td>
+                   <td className="right"><span className={score >= 80 ? "score high" : score >= 65 ? "score mid" : "score low"}>{score}</span></td>
+                   <td><span className="grade">{signal.grade ?? "—"}</span></td>
+                   <td><div className="sectorCell">{signal.metadata?.sector ?? "—"}{signal.metadata?.sector_change_percent != null && <small>{Number(signal.metadata.sector_change_percent).toFixed(2)}%</small>}</div></td>
+                   <td className="right">{rank ? <span className={rank <= 3 ? "rankBadge top" : "rankBadge"}>#{rank}{rankType ? ` · ${rankType.replace("TOP 3 ", "")}` : ""}</span> : "—"}</td>
+                   <td className="right num">{fmt(signal.ltp)}</td><td className="right num">{fmt(signal.entry)}</td><td className="right num sl">{fmt(signal.stop_loss)}</td>
+                   <td className="right num target">{fmt(signal.target1)}</td><td className="right num target">{fmt(signal.target2)}</td>
+                   <td className="right num">{fmt(signal.risk_reward)}</td><td className="right num">{fmt(signal.rvol)}×</td><td className="right num">{fmt(signal.breakout_level)}</td>
+                   <td><span className="setupBadge">FIRST BREAK</span></td>
+                 </tr>;
+               })}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <footer>{lastRefresh ? "Last refresh: " + lastRefresh.toLocaleTimeString("en-IN") : "Connecting…"}</footer>
+      <footer><span>Prime Scanner · NSE F&O universe · 3-minute engine</span><span>{lastRefresh ? "Updated " + lastRefresh.toLocaleTimeString("en-IN") : "Connecting…"}</span></footer>
 
       <style jsx>{`
         * { box-sizing: border-box; }
@@ -139,3 +214,4 @@ export default function Home() {
     </main>
   );
 }
+
