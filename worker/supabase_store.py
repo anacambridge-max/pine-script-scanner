@@ -24,9 +24,17 @@ class SupabaseStore:
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         headers = dict(self.headers)
         headers.update(kwargs.pop("headers", {}))
-        response = requests.request(method, self.base + "/rest/v1/" + path, headers=headers, timeout=20, **kwargs)
+        response = requests.request(
+            method,
+            self.base + "/rest/v1/" + path,
+            headers=headers,
+            timeout=20,
+            **kwargs,
+        )
         if not response.ok:
-            raise RuntimeError(f"Supabase {method} failed: {response.status_code} {response.text[:500]}")
+            raise RuntimeError(
+                f"Supabase {method} failed: {response.status_code} {response.text[:500]}"
+            )
         return response
 
     def write_signal(self, result: dict[str, Any], instrument_key: str, symbol: str) -> bool:
@@ -51,8 +59,11 @@ class SupabaseStore:
             timeout=20,
         )
         if not existing.ok:
-            raise RuntimeError(f"Supabase signal lookup failed: {existing.status_code} {existing.text[:500]}")
+            raise RuntimeError(
+                f"Supabase signal lookup failed: {existing.status_code} {existing.text[:500]}"
+            )
         already_exists = bool(existing.json())
+
         row = {
             "id": signal_id,
             "symbol": symbol,
@@ -71,20 +82,28 @@ class SupabaseStore:
             "ema20_status": result.get("ema_status"),
             "rvol": result.get("volume_multiple"),
             "volume_grade": result.get("volume_tier"),
-            "breakout_level": (result.get("levels") or {}).get("pdh" if result.get("direction") == "BUY" else "pdl"),
+            "breakout_level": (
+                (result.get("levels") or {}).get(
+                    "pdh" if result.get("direction") == "BUY" else "pdl"
+                )
+            ),
             "score_breakdown": {},
             "reasons": result.get("flags") or {},
-            "risks": {"risk_per_share": risk.get("risk_per_share"), "quantity": risk.get("quantity")},
+            "risks": {
+                "risk_per_share": risk.get("risk_per_share"),
+                "quantity": risk.get("quantity"),
+            },
             "fo_confirmation": "F&O STOCK",
             "is_active": True,
             "signal_time": ts,
-            "last_updated": datetime.now().isoformat(),
+            "last_updated": datetime.now().astimezone().isoformat(),
             "metadata": {
                 "timeframe": result.get("timeframe"),
                 "trigger": result.get("trigger"),
                 "full_result": result,
             },
         }
+
         if already_exists:
             return False
 
@@ -97,7 +116,13 @@ class SupabaseStore:
         )
         return True
 
-    def heartbeat(self, status: str, universe_count: int, captured_count: int, error: str | None = None) -> None:
+    def heartbeat(
+        self,
+        status: str,
+        universe_count: int,
+        captured_count: int,
+        error: str | None = None,
+    ) -> None:
         now = datetime.now().astimezone().isoformat()
         day = datetime.now().date().isoformat()
         row = {
@@ -109,14 +134,42 @@ class SupabaseStore:
             "error": error,
             "updated_at": now,
         }
-        # Patch today's row first; insert it if it doesn't exist.
-        response = requests.patch(
+
+        # PATCH can return 204 even when no row matched, so check existence
+        # first. This ensures today's heartbeat is always current.
+        existing = requests.get(
             self.base + "/rest/v1/scanner_heartbeat",
-            headers={**self.headers, "Prefer": "return=minimal"},
-            params={"trade_date": f"eq.{day}"},
-            data=json.dumps(row),
+            headers=self.headers,
+            params={
+                "select": "trade_date",
+                "trade_date": f"eq.{day}",
+                "limit": "1",
+            },
             timeout=20,
         )
-        if response.ok and response.headers.get("content-range", "").endswith("/0") is False:
-            return
-        self._request("POST", "scanner_heartbeat", data=json.dumps(row))
+        if not existing.ok:
+            raise RuntimeError(
+                f"Supabase heartbeat lookup failed: "
+                f"{existing.status_code} {existing.text[:500]}"
+            )
+
+        if existing.json():
+            response = requests.patch(
+                self.base + "/rest/v1/scanner_heartbeat",
+                headers={**self.headers, "Prefer": "return=minimal"},
+                params={"trade_date": f"eq.{day}"},
+                data=json.dumps(row),
+                timeout=20,
+            )
+            if not response.ok:
+                raise RuntimeError(
+                    f"Supabase heartbeat PATCH failed: "
+                    f"{response.status_code} {response.text[:500]}"
+                )
+        else:
+            self._request(
+                "POST",
+                "scanner_heartbeat",
+                headers={"Prefer": "return=minimal"},
+                data=json.dumps(row),
+            )
