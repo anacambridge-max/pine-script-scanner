@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import time
 import traceback
 from typing import Any
@@ -21,6 +22,7 @@ class ScannerWorker:
         if not token:
             raise RuntimeError("UPSTOX_ACCESS_TOKEN is required")
 
+        self.access_token = token
         self.engine = PrimeEngine(PrimeConfig())
         self.supabase = SupabaseStore()
         self.instruments = load_fno_stock_instruments()
@@ -28,11 +30,16 @@ class ScannerWorker:
             x["instrument_key"]: x.get("trading_symbol") or x["instrument_key"].split("|", 1)[-1]
             for x in self.instruments
         }
-        self.feed = UpstoxV3Feed(token, list(self.instrument_map))
-        self.feed.on_bar(self._on_bar)
+        self.feed = self._new_feed()
         self.running = True
         self.captured_count = 0
         self.last_heartbeat = 0.0
+        self._heartbeat_thread: threading.Thread | None = None
+
+    def _new_feed(self) -> UpstoxV3Feed:
+        feed = UpstoxV3Feed(self.access_token, list(self.instrument_map))
+        feed.on_bar(self._on_bar)
+        return feed
 
     @staticmethod
     def _aggregate_ohlcv(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -50,48 +57,97 @@ class ScannerWorker:
             .reset_index()
         )
 
-    def _heartbeat(self, status: str = "RUNNING", error: str | None = None) -> None:
+    @staticmethod
+    def _timeframe_bar_is_closed(completed_1m_ts: pd.Timestamp, timeframe: int) -> bool:
+        # NSE session anchored at 09:15:
+        # 3m bars close at :17, :20, :23...
+        # 5m bars close at :19, :24, :29...
+        minutes_from_anchor = (
+            completed_1m_ts.hour * 60
+            + completed_1m_ts.minute
+            - (9 * 60 + 15)
+        )
+        return (
+            minutes_from_anchor >= 0
+            and (minutes_from_anchor + 1) % timeframe == 0
+        )
+
+    def _heartbeat(self, status: str = "LIVE", error: str | None = None) -> None:
         now = time.time()
-        if now - self.last_heartbeat < 30 and status == "RUNNING":
+        if now - self.last_heartbeat < 25 and status == "LIVE":
             return
         self.last_heartbeat = now
         try:
-            self.supabase.heartbeat(status, len(self.instrument_map), self.captured_count, error)
+            self.supabase.heartbeat(
+                status,
+                len(self.instrument_map),
+                self.captured_count,
+                error,
+            )
         except Exception as exc:
             print(f"[HEARTBEAT ERROR] {exc}")
+
+    def _heartbeat_loop(self) -> None:
+        while self.running:
+            self._heartbeat("LIVE")
+            for _ in range(30):
+                if not self.running:
+                    return
+                time.sleep(1)
 
     def _on_bar(self, instrument_key: str, one_minute: pd.DataFrame) -> None:
         one_minute = one_minute.tail(6000)
         symbol = self.instrument_map.get(instrument_key, instrument_key)
+        if one_minute.empty:
+            return
+
+        completed_1m_ts = pd.to_datetime(one_minute["timestamp"].iloc[-1])
 
         for timeframe in (1, 3, 5):
-            frame = one_minute if timeframe == 1 else self._aggregate_ohlcv(one_minute, timeframe)
+            if timeframe != 1 and not self._timeframe_bar_is_closed(
+                completed_1m_ts, timeframe
+            ):
+                continue
+
+            frame = (
+                one_minute
+                if timeframe == 1
+                else self._aggregate_ohlcv(one_minute, timeframe)
+            )
             if len(frame) < 30:
                 continue
+
             try:
-                result: dict[str, Any] = self.engine.evaluate(frame, timeframe, context=None)
+                result: dict[str, Any] = self.engine.evaluate(
+                    frame, timeframe, context=None
+                )
             except Exception as exc:
                 self._heartbeat("ERROR", str(exc))
                 print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc!r}")
                 traceback.print_exc()
                 continue
 
-            if result.get("state") == "CONFIRMED" and result.get("direction") in {"BUY", "SELL"}:
+            if (
+                result.get("state") == "CONFIRMED"
+                and result.get("direction") in {"BUY", "SELL"}
+            ):
                 try:
-                    inserted = self.supabase.write_signal(result, instrument_key, symbol)
+                    inserted = self.supabase.write_signal(
+                        result, instrument_key, symbol
+                    )
                     if inserted:
                         send_confirmed({**result, "symbol": symbol})
                         self.captured_count += 1
-                    print(
-                        f"[CONFIRMED] {result['direction']} {symbol} "
-                        f"{timeframe}m score={result.get('prime_score')} "
-                        f"time={result.get('timestamp')}"
-                    )
+                        print(
+                            f"[CONFIRMED] {result['direction']} {symbol} "
+                            f"{timeframe}m score={result.get('prime_score')} "
+                            f"time={result.get('timestamp')}"
+                        )
                 except Exception as exc:
                     self._heartbeat("ERROR", str(exc))
                     print(f"[PERSIST ERROR] {symbol}: {exc}")
 
-        self._heartbeat()
+        self._heartbeat("LIVE")
 
     def stop(self, *_args: Any) -> None:
         self.running = False
@@ -103,19 +159,40 @@ class ScannerWorker:
     def run(self) -> None:
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
-        print(f"Prime live scanner starting with {len(self.instrument_map)} F&O stock underlyings...")
+
         self._heartbeat("STARTING")
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="scanner-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+        print(
+            f"Prime live scanner starting with {len(self.instrument_map)} "
+            "F&O stock underlyings..."
+        )
         print("Seeding one month of 1-minute history...")
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
+
         while self.running:
             try:
+                print("Connecting to Upstox V3 WebSocket...")
                 self.feed.connect()
-                break
+
+                if self.running:
+                    print(
+                        "Upstox streamer returned; rebuilding connection in 5s..."
+                    )
+                    time.sleep(5)
+                    self.feed = self._new_feed()
             except Exception as exc:
                 self._heartbeat("RECONNECTING", str(exc))
-                print(f"[FEED ERROR] {exc}; retrying in 10s")
+                print(f"[FEED ERROR] {exc}; rebuilding in 10s")
                 time.sleep(10)
+                if self.running:
+                    self.feed = self._new_feed()
 
 
 if __name__ == "__main__":
