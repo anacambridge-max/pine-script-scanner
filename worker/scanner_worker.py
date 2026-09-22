@@ -124,16 +124,32 @@ class ScannerWorker:
                 continue
 
             try:
-                # Sector context is used only for scoring. It never creates
-                # a signal and never overrides the first-break rule.
-                sector_context = self.sector_ranker.get(symbol, "")
+                # Evaluate the trading signal FIRST. Sector data is optional
+                # scoring context and must never block or delay the live scanner.
                 result: dict[str, Any] = self.engine.evaluate(
-                    frame, timeframe, context=sector_context
+                    frame, timeframe, context=None
                 )
-                result.update(sector_context)
-                result["sector_change_percent"] = sector_context.get("sector_change")
-                result["sector_rank_type"] = (result.get("score_breakdown") or {}).get("sector_rank_type")
-                result["sector_bonus"] = (result.get("score_breakdown") or {}).get("sector_bonus", 0)
+
+                # Only fetch sector data after a real confirmed signal exists.
+                # This prevents NSE API latency/errors from delaying evaluation
+                # of the 210-stock universe.
+                if (
+                    result.get("state") == "CONFIRMED"
+                    and result.get("direction") in {"BUY", "SELL"}
+                ):
+                    try:
+                        sector_context = self.sector_ranker.get(
+                            symbol, result.get("direction", "")
+                        )
+                        result = self.engine.evaluate(
+                            frame, timeframe, context=sector_context
+                        )
+                        result.update(sector_context)
+                        result["sector_change_percent"] = sector_context.get("sector_change")
+                        result["sector_rank_type"] = (result.get("score_breakdown") or {}).get("sector_rank_type")
+                        result["sector_bonus"] = (result.get("score_breakdown") or {}).get("sector_bonus", 0)
+                    except Exception as sector_exc:
+                        print(f"[SECTOR WARNING] {symbol}: {sector_exc}")
             except Exception as exc:
                 self._heartbeat("ERROR", str(exc))
                 print(f"[ENGINE ERROR] {symbol} {timeframe}m: {exc!r}")
