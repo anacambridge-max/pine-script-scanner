@@ -120,10 +120,15 @@ class SectorRanker:
         # Keep order, remove duplicates.
         return list(dict.fromkeys(candidates))
 
+    @staticmethod
+    def _canonical_alias(value: str) -> str | None:
+        raw = str(value or "").strip().upper()
+        return SECTOR_ALIASES.get(raw) or SECTOR_ALIASES.get(_norm(raw))
+
     def _resolve_sector(self, candidates: list[str]) -> tuple[str | None, str | None]:
         # First prefer an exact/alias match against the live NSE index names.
         for candidate in candidates:
-            canonical = SECTOR_ALIASES.get(_norm(candidate))
+            canonical = self._canonical_alias(candidate)
             if canonical and canonical in self._sector_change:
                 return canonical, self._sector_display.get(canonical, canonical)
 
@@ -156,7 +161,7 @@ class SectorRanker:
                 if not name:
                     continue
 
-                canonical = SECTOR_ALIASES.get(_norm(name))
+                canonical = self._canonical_alias(name)
                 if not canonical:
                     continue
 
