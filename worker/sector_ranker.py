@@ -62,7 +62,17 @@ class SectorRanker:
             stock_sector: dict[str, str] = {}
             for sector in SECTOR_INDEXES:
                 try:
-                    payload = self._get("/api/equity-stockIndices?index=" + sector.replace(" ", "%20").replace("&", "%26"))
+                    response = self._session.get(
+                        NSE_BASE + "/api/equity-stockIndices",
+                        params={"index": sector},
+                        timeout=8,
+                    )
+                    if response.status_code >= 400:
+                        raise requests.HTTPError(
+                            f"{response.status_code} {response.reason}",
+                            response=response,
+                        )
+                    payload = response.json()
                     for item in payload.get("data", []):
                         symbol = item.get("symbol")
                         if symbol and symbol not in stock_sector:
