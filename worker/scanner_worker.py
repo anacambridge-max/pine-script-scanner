@@ -218,12 +218,12 @@ class ScannerWorker:
             existing_signals = self.supabase.get_today_confirmed_signals()
             if existing_signals:
                 print(f"[SECTOR] Backfilling {len(existing_signals)} today's confirmed signals...")
-                for signal in existing_signals:
+                for signal_row in existing_signals:
                     try:
-                        symbol = str(signal.get("symbol") or "")
-                        direction = str(signal.get("signal_type") or "")
+                        symbol = str(signal_row.get("symbol") or "")
+                        direction = str(signal_row.get("signal_type") or "")
                         context = self.sector_ranker.get(symbol, direction)
-                        metadata = dict(signal.get("metadata") or {})
+                        metadata = dict(signal_row.get("metadata") or {})
                         metadata.update({
                             "sector": context.get("sector"),
                             "sector_change_percent": context.get("sector_change"),
@@ -240,7 +240,7 @@ class ScannerWorker:
                             "sector_bonus": context.get("sector_bonus", 0),
                         })
                         self.supabase.update_signal_sector(
-                            str(signal.get("id")),
+                            str(signal_row.get("id")),
                             metadata,
                             score_breakdown=breakdown,
                         )
@@ -250,7 +250,7 @@ class ScannerWorker:
                             f"change={context.get('sector_change')}"
                         )
                     except Exception as exc:
-                        print(f"[SECTOR BACKFILL WARNING] {signal.get('symbol')}: {exc}")
+                        print(f"[SECTOR BACKFILL WARNING] {signal_row.get('symbol')}: {exc}")
         except Exception as exc:
             print(f"[SECTOR BACKFILL ERROR] {exc}")
 
