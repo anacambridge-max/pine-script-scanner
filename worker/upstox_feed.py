@@ -185,9 +185,9 @@ class UpstoxV3Feed:
             )
 
     def seed_history(self) -> None:
-        """Seed up to one month of 1-minute candles before opening the live stream."""
+        """Seed up to 60 calendar days of 1-minute candles before opening the live stream."""
         to_date = date.today()
-        from_date = to_date - timedelta(days=30)
+        from_date = to_date - timedelta(days=60)
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.access_token}",
