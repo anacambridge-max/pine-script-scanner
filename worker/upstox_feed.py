@@ -185,7 +185,12 @@ class UpstoxV3Feed:
             )
 
     def seed_history(self) -> None:
-        """Seed up to 60 calendar days of 1-minute candles before opening the live stream."""
+        """Seed ~60 calendar days of 1-minute history using <=28-day API chunks.
+
+        Upstox V3 limits 1-minute historical retrieval to one month per request,
+        so a single 60-day request returns 400. We fetch backward in safe chunks
+        and merge candles by timestamp.
+        """
         to_date = date.today()
         from_date = to_date - timedelta(days=60)
         headers = {
@@ -195,26 +200,31 @@ class UpstoxV3Feed:
 
         for index, instrument_key in enumerate(self.instrument_keys):
             encoded = requests.utils.quote(instrument_key, safe="")
-            url = (
-                f"https://api.upstox.com/v3/historical-candle/{encoded}/minutes/1/"
-                f"{to_date.isoformat()}/{from_date.isoformat()}"
-            )
+            chunk_to = to_date
             try:
-                response = requests.get(url, headers=headers, timeout=30)
-                response.raise_for_status()
-                candles = response.json().get("data", {}).get("candles", [])
-                for c in candles:
-                    if len(c) < 6:
-                        continue
-                    ts = pd.to_datetime(c[0], utc=True).tz_convert("Asia/Kolkata")
-                    self._bars[instrument_key][ts] = {
-                        "timestamp": ts,
-                        "open": float(c[1]),
-                        "high": float(c[2]),
-                        "low": float(c[3]),
-                        "close": float(c[4]),
-                        "volume": float(c[5]),
-                    }
+                while chunk_to >= from_date:
+                    chunk_from = max(from_date, chunk_to - timedelta(days=27))
+                    url = (
+                        f"https://api.upstox.com/v3/historical-candle/{encoded}/minutes/1/"
+                        f"{chunk_to.isoformat()}/{chunk_from.isoformat()}"
+                    )
+                    response = requests.get(url, headers=headers, timeout=30)
+                    response.raise_for_status()
+                    candles = response.json().get("data", {}).get("candles", [])
+                    for c in candles:
+                        if len(c) < 6:
+                            continue
+                        ts = pd.to_datetime(c[0], utc=True).tz_convert("Asia/Kolkata")
+                        self._bars[instrument_key][ts] = {
+                            "timestamp": ts,
+                            "open": float(c[1]),
+                            "high": float(c[2]),
+                            "low": float(c[3]),
+                            "close": float(c[4]),
+                            "volume": float(c[5]),
+                        }
+                    chunk_to = chunk_from - timedelta(days=1)
+
                 if (index + 1) % 25 == 0:
                     print(f"Historical seed: {index + 1}/{len(self.instrument_keys)}")
             except Exception as exc:
