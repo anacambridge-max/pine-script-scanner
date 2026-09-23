@@ -144,6 +144,46 @@ class SupabaseStore:
         )
         return True
 
+    def write_next_day_watchlist(self, rows: list[dict[str, Any]], instrument_lookup: dict[str, str]) -> int:
+        if not rows:
+            return 0
+        payload = []
+        for row in rows:
+            symbol = str(row.get("symbol") or "")
+            analysis_date = str(row.get("analysis_date") or "")
+            direction = str(row.get("direction") or "")
+            row_id = f"{analysis_date}|{symbol}|{direction}"
+            item = dict(row)
+            item["id"] = row_id
+            item["instrument_key"] = instrument_lookup.get(symbol)
+            item["target_date"] = str(
+                (datetime.fromisoformat(analysis_date).date() + __import__("datetime").timedelta(days=1))
+            )
+            payload.append(_json_safe(item))
+        self._request(
+            "POST",
+            "next_day_watchlist",
+            params={"on_conflict": "id"},
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            data=json.dumps(payload, allow_nan=False),
+        )
+        return len(payload)
+
+    def get_next_day_watchlist(self, target_date: str | None = None) -> list[dict[str, Any]]:
+        if not target_date:
+            target_date = datetime.now().date().isoformat()
+        response = self._request(
+            "GET",
+            "next_day_watchlist",
+            params={
+                "select": "*",
+                "target_date": f"eq.{target_date}",
+                "order": "direction.asc,score.desc",
+                "limit": "20",
+            },
+        )
+        return response.json()
+
     def delete_previous_days(self) -> int:
         """Delete scanner signals from dates before today."""
         day = datetime.now().date().isoformat()
