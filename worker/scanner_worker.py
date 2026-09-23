@@ -230,19 +230,34 @@ class ScannerWorker:
                             "sector_rank": context.get("sector_rank"),
                             "sector_rank_type": context.get("sector_rank_type"),
                         })
-                        raw_breakdown = metadata.get("score_breakdown")
+                        raw_breakdown = signal_row.get("score_breakdown")
                         breakdown = dict(raw_breakdown) if isinstance(raw_breakdown, dict) else {}
+                        sector_bonus = float(context.get("sector_bonus") or 0)
+                        old_sector_bonus = float(breakdown.get("sector_bonus") or 0)
+                        current_score = int(signal_row.get("score") or 0)
+                        new_score = max(0, min(100, round(current_score - old_sector_bonus + sector_bonus)))
+                        new_grade = (
+                            "PRIME A+" if new_score >= 90
+                            else "PRIME A" if new_score >= 80
+                            else "STRONG" if new_score >= 70
+                            else "GOOD" if new_score >= 60
+                            else "WATCH" if new_score >= 50
+                            else "WEAK"
+                        )
                         breakdown.update({
                             "sector": context.get("sector"),
                             "sector_change_percent": context.get("sector_change"),
                             "sector_rank": context.get("sector_rank"),
                             "sector_rank_type": context.get("sector_rank_type"),
-                            "sector_bonus": context.get("sector_bonus", 0),
+                            "sector_bonus": sector_bonus,
+                            "total": new_score,
                         })
                         self.supabase.update_signal_sector(
                             str(signal_row.get("id")),
                             metadata,
                             score_breakdown=breakdown,
+                            score=new_score,
+                            grade=new_grade,
                         )
                         print(
                             f"[SECTOR] {symbol}: "
