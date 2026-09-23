@@ -11,6 +11,7 @@ import pandas as pd
 
 from engine import PrimeConfig, PrimeEngine
 from worker.instruments import load_fno_stock_instruments
+from worker.next_day_scanner import NextDayScanner
 from worker.supabase_store import SupabaseStore
 from worker.sector_ranker import SectorRanker
 from worker.telegram import send_confirmed
@@ -36,6 +37,9 @@ class ScannerWorker:
             for x in self.instruments
         }
         self.sector_ranker = SectorRanker()
+        self.next_day_scanner = NextDayScanner(top_n=3)
+        self._next_day_thread: threading.Thread | None = None
+        self._next_day_done: set[str] = set()
         self.feed = self._new_feed()
         self.running = True
         self.captured_count = 0
@@ -179,6 +183,66 @@ class ScannerWorker:
 
         self._heartbeat("LIVE")
 
+    @staticmethod
+    def _next_business_day(analysis_date: pd.Timestamp) -> str:
+        target = analysis_date.date() + pd.Timedelta(days=1)
+        while target.weekday() >= 5:
+            target += pd.Timedelta(days=1)
+        return target.isoformat()
+
+    def _run_next_day_scan(self, analysis_date: pd.Timestamp) -> None:
+        key = analysis_date.date().isoformat()
+        if key in self._next_day_done:
+            return
+        try:
+            histories = self.feed.get_histories()
+            rows = self.next_day_scanner.scan(
+                histories,
+                self.instrument_map,
+                self.company_map,
+                analysis_date.date(),
+            )
+            target_date = self._next_business_day(analysis_date)
+            for row in rows:
+                row["target_date"] = target_date
+            instrument_lookup = {
+                symbol: instrument_key
+                for instrument_key, symbol in self.instrument_map.items()
+            }
+            count = self.supabase.write_next_day_watchlist(rows, instrument_lookup)
+            self._next_day_done.add(key)
+            print(
+                f"[D-1] {key} -> {target_date}: "
+                f"{count} candidates stored "
+                f"(BUY={sum(1 for x in rows if x['direction']=='BUY')}, "
+                f"SELL={sum(1 for x in rows if x['direction']=='SELL')})"
+            )
+            for row in rows:
+                print(
+                    f"[D-1] {row['direction']} {row['symbol']} "
+                    f"score={row['score']} grade={row['grade']} "
+                    f"reasons={', '.join(row['reasons'])}"
+                )
+        except Exception as exc:
+            print(f"[D-1 ERROR] {exc}")
+            traceback.print_exc()
+
+    def _next_day_loop(self) -> None:
+        while self.running:
+            try:
+                now = pd.Timestamp.now(tz="Asia/Kolkata")
+                if now.hour < 15 or (now.hour == 15 and now.minute < 35):
+                    analysis_date = now.normalize() - pd.Timedelta(days=1)
+                else:
+                    analysis_date = now.normalize()
+                self._run_next_day_scan(analysis_date)
+            except Exception as exc:
+                print(f"[D-1 LOOP ERROR] {exc}")
+            for _ in range(60):
+                if not self.running:
+                    return
+                time.sleep(1)
+
     def stop(self, *_args: Any) -> None:
         self.running = False
         try:
@@ -203,6 +267,16 @@ class ScannerWorker:
             daemon=True,
         )
         self._heartbeat_thread.start()
+
+        # D-1 watchlist is generated from the same seeded 1-minute history.
+        # It never creates live BUY/SELL signals; the 3-minute engine remains
+        # the confirmation layer.
+        self._next_day_thread = threading.Thread(
+            target=self._next_day_loop,
+            name="next-day-scanner",
+            daemon=True,
+        )
+        self._next_day_thread.start()
 
         print(
             f"Prime live scanner starting with {len(self.instrument_map)} "
