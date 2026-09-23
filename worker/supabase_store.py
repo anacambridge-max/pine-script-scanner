@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
@@ -157,7 +157,7 @@ class SupabaseStore:
             item["id"] = row_id
             item["instrument_key"] = instrument_lookup.get(symbol)
             item["target_date"] = str(
-                (datetime.fromisoformat(analysis_date).date() + __import__("datetime").timedelta(days=1))
+                (datetime.fromisoformat(analysis_date).date() + timedelta(days=1))
             )
             payload.append(_json_safe(item))
         self._request(
