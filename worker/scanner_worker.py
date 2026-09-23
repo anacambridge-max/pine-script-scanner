@@ -212,6 +212,48 @@ class ScannerWorker:
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
 
+        # Backfill sector/rank for today's existing signals so rows created
+        # before the sector-ranker fix also become enriched.
+        try:
+            existing_signals = self.supabase.get_today_confirmed_signals()
+            if existing_signals:
+                print(f"[SECTOR] Backfilling {len(existing_signals)} today's confirmed signals...")
+                for signal in existing_signals:
+                    try:
+                        symbol = str(signal.get("symbol") or "")
+                        direction = str(signal.get("signal_type") or "")
+                        context = self.sector_ranker.get(symbol, direction)
+                        metadata = dict(signal.get("metadata") or {})
+                        metadata.update({
+                            "sector": context.get("sector"),
+                            "sector_change_percent": context.get("sector_change"),
+                            "sector_rank": context.get("sector_rank"),
+                            "sector_rank_type": context.get("sector_rank_type"),
+                        })
+                        raw_breakdown = metadata.get("score_breakdown")
+                        breakdown = dict(raw_breakdown) if isinstance(raw_breakdown, dict) else {}
+                        breakdown.update({
+                            "sector": context.get("sector"),
+                            "sector_change_percent": context.get("sector_change"),
+                            "sector_rank": context.get("sector_rank"),
+                            "sector_rank_type": context.get("sector_rank_type"),
+                            "sector_bonus": context.get("sector_bonus", 0),
+                        })
+                        self.supabase.update_signal_sector(
+                            str(signal.get("id")),
+                            metadata,
+                            score_breakdown=breakdown,
+                        )
+                        print(
+                            f"[SECTOR] {symbol}: "
+                            f"{context.get('sector')} rank={context.get('sector_rank')} "
+                            f"change={context.get('sector_change')}"
+                        )
+                    except Exception as exc:
+                        print(f"[SECTOR BACKFILL WARNING] {signal.get('symbol')}: {exc}")
+        except Exception as exc:
+            print(f"[SECTOR BACKFILL ERROR] {exc}")
+
         reconnect_delay = 20
 
         while self.running:
