@@ -238,6 +238,54 @@ class UpstoxV3Feed:
             if rows
         }
 
+    def refresh_today_history(self) -> int:
+        """Refresh the current trading day's 1-minute candles from Upstox V3.
+
+        This is used after the market close so the D-1 scanner has a complete
+        current-session dataset even if the websocket stopped emitting after
+        the final live minute.
+        """
+        today = date.today()
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.access_token}",
+        }
+        refreshed = 0
+
+        for instrument_key in self.instrument_keys:
+            encoded = requests.utils.quote(instrument_key, safe="")
+            url = (
+                "https://api.upstox.com/v3/historical-candle/intraday/"
+                f"{encoded}/minutes/1"
+            )
+            try:
+                response = requests.get(url, headers=headers, timeout=20)
+                response.raise_for_status()
+                candles = response.json().get("data", {}).get("candles", [])
+                for c in candles:
+                    if len(c) < 6:
+                        continue
+                    ts = pd.to_datetime(c[0], utc=True).tz_convert("Asia/Kolkata")
+                    if ts.date() != today:
+                        continue
+                    self._bars[instrument_key][ts] = {
+                        "timestamp": ts,
+                        "open": float(c[1]),
+                        "high": float(c[2]),
+                        "low": float(c[3]),
+                        "close": float(c[4]),
+                        "volume": float(c[5]),
+                    }
+                refreshed += 1
+            except Exception as exc:
+                print(f"[D-1 REFRESH WARNING] {instrument_key}: {exc}")
+
+        print(
+            f"[D-1] refreshed today's 1-minute history for "
+            f"{refreshed}/{len(self.instrument_keys)} instruments"
+        )
+        return refreshed
+
     def connect(self) -> None:
         self._closed.clear()
         self.streamer.connect()
