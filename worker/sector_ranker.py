@@ -12,6 +12,9 @@ from typing import Any
 import requests
 
 NIFTY_BASE = "https://www.niftyindices.com"
+NSE_BASE = "https://www.nseindia.com"
+NSE_ALL_INDICES_URL = NSE_BASE + "/api/allIndices"
+NSE_INDEX_MEMBERS_URL = NSE_BASE + "/api/equity-stockIndices"
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
 UPSTOX_QUOTE_URL = "https://api.upstox.com/v3/market-quote/quotes"
 
@@ -121,8 +124,9 @@ class SectorRanker:
     Sector context without NSE's browser-protected quote-equity endpoint.
 
     Sources:
-      - Nifty Indices constituent CSVs/pages -> stock -> sector membership.
-      - Upstox authenticated market quote -> live sector-index price/prev-close.
+      - NSE equity-stockIndices -> stock -> sector membership.
+      - NSE allIndices -> live sector-index percentage change.
+      - Upstox authenticated market quote -> fallback live sector-index data.
 
     The NSE quote-equity endpoint is intentionally not used because it can
     return HTTP 403 to ordinary server-side requests.
@@ -144,7 +148,8 @@ class SectorRanker:
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36",
             "Accept": "application/json,text/plain,*/*",
             "Accept-Language": "en-IN,en;q=0.9",
-            "Referer": NIFTY_BASE + "/",
+            "Referer": NSE_BASE + "/",
+            "Connection": "keep-alive",
         })
         self._load_upstox_sector_index_keys()
         self._refresh_membership(force=True)
@@ -188,70 +193,126 @@ class SectorRanker:
             mapping: dict[str, str] = {}
             loaded = 0
 
+            # NSE's equity-stockIndices endpoint returns the actual constituent
+            # rows for an index. This avoids the separate niftyindices.com DNS
+            # dependency that was failing in the worker.
             for sector in SECTOR_PRIORITY:
-                slug = SECTOR_PAGES[sector]
                 try:
-                    page_url = f"{NIFTY_BASE}/indices/equity/sectoral-indices/{slug}"
-                    page = self._session.get(page_url, timeout=12)
-                    page.raise_for_status()
-
-                    match = re.search(
-                        r"https?://www\\.niftyindices\\.com//IndexConstituent/([^\"']+?\.csv)",
-                        page.text,
-                        flags=re.IGNORECASE,
+                    response = self._session.get(
+                        NSE_INDEX_MEMBERS_URL,
+                        params={"index": sector},
+                        timeout=12,
                     )
-                    if not match:
+                    response.raise_for_status()
+                    payload = response.json()
+                    rows = payload.get("data") or []
+                    if not rows:
+                        print(f"[SECTOR] NSE returned 0 constituents: {sector}")
+                        continue
+
+                    count = 0
+                    for row in rows:
+                        symbol = row.get("symbol") or row.get("Symbol")
+                        if symbol:
+                            mapping.setdefault(str(symbol).strip().upper(), sector)
+                            count += 1
+                    if count:
+                        loaded += 1
+                except Exception as exc:
+                    print(f"[SECTOR] NSE membership load failed {sector}: {exc}")
+
+            # Fallback to Nifty Indices only if NSE could not provide anything.
+            if not mapping:
+                for sector in SECTOR_PRIORITY:
+                    slug = SECTOR_PAGES[sector]
+                    try:
+                        page_url = f"{NIFTY_BASE}/indices/equity/sectoral-indices/{slug}"
+                        page = self._session.get(page_url, timeout=12)
+                        page.raise_for_status()
                         match = re.search(
-                            r"/?IndexConstituent/([^\"']+?\.csv)",
+                            r"https?://www\\.niftyindices\\.com//IndexConstituent/([^\"']+?\.csv)",
                             page.text,
                             flags=re.IGNORECASE,
                         )
-                    if not match:
-                        print(f"[SECTOR] No constituent CSV link found: {sector}")
-                        continue
-
-                    csv_url = f"{NIFTY_BASE}/IndexConstituent/{match.group(1)}"
-                    csv_response = self._session.get(csv_url, timeout=12)
-                    csv_response.raise_for_status()
-
-                    text = csv_response.content.decode("utf-8-sig", errors="replace")
-                    reader = csv.DictReader(io.StringIO(text))
-                    rows = list(reader)
-                    if not rows:
-                        continue
-
-                    for row in rows:
-                        symbol = (
-                            row.get("Symbol")
-                            or row.get("symbol")
-                            or row.get("SYMBOL")
-                            or row.get("Trading Symbol")
-                            or row.get("TradingSymbol")
-                        )
-                        if symbol:
-                            mapping.setdefault(str(symbol).strip().upper(), sector)
-                    loaded += 1
-                except Exception as exc:
-                    print(f"[SECTOR] Membership load failed {sector}: {exc}")
+                        if not match:
+                            match = re.search(
+                                r"/?IndexConstituent/([^\"']+?\.csv)",
+                                page.text,
+                                flags=re.IGNORECASE,
+                            )
+                        if not match:
+                            continue
+                        csv_url = f"{NIFTY_BASE}/IndexConstituent/{match.group(1)}"
+                        csv_response = self._session.get(csv_url, timeout=12)
+                        csv_response.raise_for_status()
+                        text = csv_response.content.decode("utf-8-sig", errors="replace")
+                        rows = list(csv.DictReader(io.StringIO(text)))
+                        for row in rows:
+                            symbol = (
+                                row.get("Symbol") or row.get("symbol") or
+                                row.get("SYMBOL") or row.get("Trading Symbol") or
+                                row.get("TradingSymbol")
+                            )
+                            if symbol:
+                                mapping.setdefault(str(symbol).strip().upper(), sector)
+                        if rows:
+                            loaded += 1
+                    except Exception as exc:
+                        print(f"[SECTOR] Nifty fallback failed {sector}: {exc}")
 
             self._symbol_sector = mapping
             self._membership_last = time.time()
             print(
                 f"[SECTOR] membership map loaded: {len(mapping)} stocks "
-                f"across {loaded}/{len(SECTOR_PAGES)} sector indices"
+                f"across {loaded}/{len(SECTOR_PRIORITY)} sector indices"
             )
 
+    def _apply_ranked_changes(self, changes: dict[str, float]) -> None:
+        if not changes:
+            return
+        ranked = sorted(changes.items(), key=lambda kv: kv[1], reverse=True)
+        self._sector_change = changes
+        self._sector_display = {name: name for name in changes}
+        self._sector_rank = {name: index + 1 for index, (name, _) in enumerate(ranked)}
+        print(
+            f"[SECTOR] live refresh {len(changes)} indices; "
+            f"top={ranked[:3]} bottom={ranked[-3:]}"
+        )
+
     def _refresh_live_indices(self) -> None:
+        # Primary source: NSE allIndices. It gives the sector index's current
+        # percentage change directly, so no prev-close calculation is needed.
+        try:
+            response = self._session.get(NSE_ALL_INDICES_URL, timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+            changes: dict[str, float] = {}
+            for row in payload.get("data") or []:
+                name = str(row.get("index") or row.get("indexName") or "").strip()
+                sector = _canonical(name)
+                if not sector:
+                    continue
+                value = row.get("percentChange")
+                if value is None:
+                    value = row.get("percChange")
+                if value is None:
+                    continue
+                changes[sector] = float(value)
+            if changes:
+                self._apply_ranked_changes(changes)
+                return
+        except Exception as exc:
+            print(f"[SECTOR] NSE allIndices error: {exc}")
+
+        # Fallback: Upstox authenticated index quotes.
         token = os.getenv("UPSTOX_ACCESS_TOKEN")
         if not token:
             return
-
         if not self._sector_keys:
             self._load_upstox_sector_index_keys()
         if not self._sector_keys:
             return
 
-        keys = list(self._sector_keys.values())
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
@@ -259,45 +320,37 @@ class SectorRanker:
         try:
             response = requests.get(
                 UPSTOX_QUOTE_URL,
-                params={"instrument_key": ",".join(keys)},
+                params={"instrument_key": ",".join(self._sector_keys.values())},
                 headers=headers,
                 timeout=10,
             )
             response.raise_for_status()
             payload = response.json()
             changes: dict[str, float] = {}
-            display: dict[str, str] = {}
+            by_key = {str(key).upper(): sector for sector, key in self._sector_keys.items()}
 
-            by_key = {key: sector for sector, key in self._sector_keys.items()}
             for data_key, item in (payload.get("data") or {}).items():
-                instrument_key = data_key.replace(":", "|", 1)
-                sector = by_key.get(instrument_key)
+                # Upstox keys are returned as EXCHANGE:SYMBOL while instrument
+                # files use EXCHANGE|SYMBOL.
+                normalized = str(data_key).replace(":", "|", 1).upper()
+                sector = by_key.get(normalized)
                 if not sector:
                     continue
 
-                last_price = item.get("last_price")
+                net_change = item.get("net_change")
                 prev_close = item.get("prev_close_price")
-                if prev_close is None:
-                    prev_close = item.get("ohlc", {}).get("close")
+                last_price = item.get("last_price")
 
-                if last_price is None or prev_close in (None, 0):
-                    continue
-
-                change = (float(last_price) - float(prev_close)) / float(prev_close) * 100.0
-                changes[sector] = change
-                display[sector] = sector
+                if net_change is not None and prev_close not in (None, 0):
+                    changes[sector] = float(net_change) / float(prev_close) * 100.0
+                elif last_price is not None and prev_close not in (None, 0):
+                    changes[sector] = (
+                        (float(last_price) - float(prev_close)) /
+                        float(prev_close) * 100.0
+                    )
 
             if changes:
-                ranked = sorted(changes.items(), key=lambda kv: kv[1], reverse=True)
-                self._sector_change = changes
-                self._sector_display = display
-                self._sector_rank = {
-                    name: index + 1 for index, (name, _) in enumerate(ranked)
-                }
-                print(
-                    f"[SECTOR] live refresh {len(changes)} indices; "
-                    f"top={ranked[:3]} bottom={ranked[-3:]}"
-                )
+                self._apply_ranked_changes(changes)
             else:
                 print("[SECTOR] Upstox returned 0 usable sector index quotes")
         except Exception as exc:
