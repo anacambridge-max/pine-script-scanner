@@ -124,35 +124,32 @@ export default function Home() {
   };
 
   const buildSelectorRow = (signal: Signal): SelectorRow => {
-    const prime = Math.max(0, Math.min(100, Number(signal.score || 0)));
+    // TOP INTRADAY is deliberately sector-neutral. Sector rank is displayed
+    // only in the confirmed-signals table; it must never change this ranking.
+    const breakdown = signal.metadata?.score_breakdown as Record<string, unknown> | undefined;
+    const volumePart = Number(breakdown?.volume ?? 0);
+    const breakPart = Number(breakdown?.first_pdh_pdl_break ?? 0);
+    const candlePart = Number(breakdown?.candle_quality ?? 0);
+    const corePrime = Math.min(100, Math.max(0, ((volumePart + breakPart + candlePart) / 90) * 100));
+
     const rvol = Number(signal.rvol || 0);
     const rvolScore = Math.min(100, Math.max(0, ((rvol - 2) / 3) * 100));
     const rr = Number(signal.risk_reward || 0);
     const rrScore = Math.min(100, Math.max(0, (rr / 2) * 100));
-    const rank = Number(signal.metadata?.sector_rank || 999);
-    const direction = signal.signal_type.toUpperCase().includes("BUY") ? "BUY" : "SELL";
-    const aligned = rank <= 3 && (
-      (direction === "BUY" && Number(signal.metadata?.sector_change_percent || 0) > 0) ||
-      (direction === "SELL" && Number(signal.metadata?.sector_change_percent || 0) < 0)
-    );
-    const sectorScore = aligned ? 100 : rank <= 5 ? 50 : 0;
 
-    // Second-stage selector only ranks already-confirmed signals.
-    // It does not create or alter BUY/SELL signals.
+    // Second-stage selector ranks only already-confirmed signals.
+    // Sector rank/change is intentionally NOT part of the score.
     const selectorScore = Math.round(
-      prime * 0.55 +
-      rvolScore * 0.20 +
-      rrScore * 0.15 +
-      sectorScore * 0.10
+      corePrime * 0.60 +
+      rvolScore * 0.25 +
+      rrScore * 0.15
     );
 
     const reasons: string[] = [
-      "Prime " + prime,
+      "Core " + Math.round(corePrime),
       "RVOL " + fmt(signal.rvol) + "×",
       "R:R " + fmt(signal.risk_reward),
     ];
-    if (aligned) reasons.push(rank <= 3 ? "Sector TOP 3 " + (direction === "BUY" ? "GAINER" : "LOSER") : "Sector aligned");
-    else if (signal.metadata?.sector) reasons.push("Sector #" + (rank < 999 ? rank : "—"));
     return { signal, selectorScore, reasons };
   };
 
@@ -229,7 +226,7 @@ export default function Home() {
             <strong>INTRADAY TRADE SELECTOR</strong>
             <span>Second-stage ranking of confirmed signals · does not create new signals</span>
           </div>
-          <div className="selectorNote">Prime 55% · RVOL 20% · R:R 15% · Sector 10%</div>
+          <div className="selectorNote">Core setup 60% · RVOL 25% · R:R 15% · Sector 0%</div>
         </div>
 
         <div className="selectorGrid">
