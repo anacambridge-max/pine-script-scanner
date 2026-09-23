@@ -215,3 +215,36 @@ class SupabaseStore:
                 headers={"Prefer": "return=minimal"},
                 data=json.dumps(row),
             )
+
+
+    def get_today_confirmed_signals(self) -> list[dict[str, Any]]:
+        """Return today's confirmed signals for one-time sector backfill."""
+        day = datetime.now().date().isoformat()
+        response = self._request(
+            "GET",
+            "scanner_signals",
+            params={
+                "select": "id,symbol,signal_type,metadata",
+                "signal_time": f"gte.{day}T00:00:00",
+                "signal_state": "eq.CONFIRMED",
+                "limit": "500",
+            },
+        )
+        return response.json()
+
+    def update_signal_sector(
+        self,
+        signal_id: str,
+        metadata: dict[str, Any],
+        score_breakdown: dict[str, Any] | None = None,
+    ) -> None:
+        row: dict[str, Any] = {"metadata": _json_safe(metadata)}
+        if score_breakdown is not None:
+            row["score_breakdown"] = _json_safe(score_breakdown)
+        self._request(
+            "PATCH",
+            "scanner_signals",
+            params={"id": f"eq.{signal_id}"},
+            headers={"Prefer": "return=minimal"},
+            data=json.dumps(row, allow_nan=False),
+        )
