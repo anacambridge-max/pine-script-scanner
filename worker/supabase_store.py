@@ -224,7 +224,7 @@ class SupabaseStore:
             "GET",
             "scanner_signals",
             params={
-                "select": "id,symbol,signal_type,metadata",
+                "select": "id,symbol,signal_type,score,grade,metadata,score_breakdown",
                 "signal_time": f"gte.{day}T00:00:00",
                 "signal_state": "eq.CONFIRMED",
                 "limit": "500",
@@ -237,10 +237,16 @@ class SupabaseStore:
         signal_id: str,
         metadata: dict[str, Any],
         score_breakdown: dict[str, Any] | None = None,
+        score: int | None = None,
+        grade: str | None = None,
     ) -> None:
         row: dict[str, Any] = {"metadata": _json_safe(metadata)}
         if score_breakdown is not None:
             row["score_breakdown"] = _json_safe(score_breakdown)
+        if score is not None:
+            row["score"] = int(score)
+        if grade is not None:
+            row["grade"] = grade
         self._request(
             "PATCH",
             "scanner_signals",
