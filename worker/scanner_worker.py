@@ -191,18 +191,33 @@ class ScannerWorker:
         return target.isoformat()
 
     def _run_next_day_scan(self, analysis_date: pd.Timestamp) -> None:
-        key = analysis_date.date().isoformat()
-        if key in self._next_day_done:
-            return
         try:
             histories = self.feed.get_histories()
+            cutoff = analysis_date.date()
+            available_dates = []
+            for frame in histories.values():
+                if frame.empty:
+                    continue
+                ts = pd.to_datetime(frame["timestamp"])
+                dates = ts.dt.date
+                valid = dates[dates <= cutoff]
+                if not valid.empty:
+                    available_dates.append(valid.max())
+            if not available_dates:
+                return
+
+            actual_date = max(available_dates)
+            key = actual_date.isoformat()
+            if key in self._next_day_done:
+                return
+
             rows = self.next_day_scanner.scan(
                 histories,
                 self.instrument_map,
                 self.company_map,
-                analysis_date.date(),
+                actual_date,
             )
-            target_date = self._next_business_day(analysis_date)
+            target_date = self._next_business_day(pd.Timestamp(actual_date))
             for row in rows:
                 row["target_date"] = target_date
             instrument_lookup = {
