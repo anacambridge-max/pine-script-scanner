@@ -220,6 +220,14 @@ class UpstoxV3Feed:
             except Exception as exc:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
+    def get_histories(self) -> dict[str, pd.DataFrame]:
+        """Return a snapshot of seeded/live 1-minute histories for analysis."""
+        return {
+            key: pd.DataFrame(list(rows.values())).sort_values("timestamp").reset_index(drop=True)
+            for key, rows in self._bars.items()
+            if rows
+        }
+
     def connect(self) -> None:
         self._closed.clear()
         self.streamer.connect()
