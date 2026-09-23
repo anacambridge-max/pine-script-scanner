@@ -271,30 +271,25 @@ export default function Home() {
         <div className="watchlistHead">
           <div>
             <strong>NEXT-DAY PRIME WATCHLIST</strong>
-            <span>D-1 completed data · top 3 BUY + top 3 SELL candidates · watchlist only, not an entry signal</span>
+            <span>D-1 completed data · top 3 potential movers · watchlist only, not an entry signal</span>
           </div>
           <div className="watchlistBadge">{watchlist.length} candidates</div>
         </div>
-        <div className="watchGrid">
-          {(["BUY", "SELL"] as const).map((direction) => {
-            const rows = watchlist.filter((x) => x.direction === direction).slice(0, 3);
-            return <div className={direction === "BUY" ? "watchPanel buyPanel" : "watchPanel sellPanel"} key={direction}>
-              <div className="watchPanelTitle"><span>{direction === "BUY" ? "TOP BUY WATCHLIST" : "TOP SELL WATCHLIST"}</span><b>{rows.length}</b></div>
-              {rows.length === 0 ? <div className="watchEmpty">No D-1 candidate yet</div> :
-                rows.map((row, index) => (
-                  <div className="watchRow" key={row.id}>
-                    <div className="watchRank">{index + 1}</div>
-                    <div className="watchSymbol"><strong>{row.symbol}</strong><small>{row.company_name ?? row.symbol}</small></div>
-                    <div className="watchReasons">
-                      <span>D-1 {fmt(row.change_percent)}%</span>
-                      <span>Vol {fmt(row.volume_multiple)}×</span>
-                      {row.reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}
-                    </div>
-                    <div className="watchScore">{row.score}</div>
-                  </div>
-                ))}
-            </div>;
-          })}
+        <div className="watchSingle">
+          {watchlist.length === 0 ? <div className="watchEmpty">No D-1 candidate yet. The scanner builds this from the latest completed session.</div> :
+            watchlist.slice(0, 3).map((row, index) => (
+              <div className="watchRow" key={row.id}>
+                <div className="watchRank">{index + 1}</div>
+                <div className="watchSymbol"><strong>{row.symbol}</strong><small>{row.company_name ?? row.symbol}</small></div>
+                <div className={row.direction === "BUY" ? "watchDirection buyText" : "watchDirection sellText"}>{row.direction}</div>
+                <div className="watchReasons">
+                  <span>D-1 {fmt(row.change_percent)}%</span>
+                  <span>Vol {fmt(row.volume_multiple)}×</span>
+                  {row.reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}
+                </div>
+                <div className="watchScore">{row.score}</div>
+              </div>
+            ))}
         </div>
       </section>
 
@@ -394,7 +389,8 @@ export default function Home() {
         .watchlistHead strong { display:block; color:#e7edf6; font-size:12px; letter-spacing:.8px; }
         .watchlistHead span { display:block; margin-top:3px; color:#65758d; font-size:9px; }
         .watchlistBadge { color:#aebbd0; background:#111d2d; border:1px solid #263850; border-radius:999px; padding:5px 9px; font-size:9px; font-weight:800; }
-        .watchGrid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#1b2739; }
+        .watchSingle { background:#0b131f; }
+        .watchDirection { font-size:9px; font-weight:900; letter-spacing:.5px; }
         .watchPanel { background:#0b131f; min-width:0; }
         .watchPanelTitle { display:flex; justify-content:space-between; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
         .watchPanelTitle b { color:#9eabc0; }
@@ -432,7 +428,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.watchGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
       `}</style>
     </main>
   );
