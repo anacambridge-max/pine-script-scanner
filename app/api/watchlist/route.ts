@@ -10,11 +10,38 @@ export async function GET() {
     return NextResponse.json({ error: "Supabase server environment variables are not configured." }, { status: 500 });
   }
 
-  const target = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  // The worker switches to the NEXT trading session after 15:35 IST.
+  // The dashboard must query the same target date; querying "today" after
+  // the close would hide the rows generated for tomorrow.
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const part = (type: string) => parts.find(p => p.type === type)?.value || "00";
+  const y = Number(part("year"));
+  const m = Number(part("month"));
+  const d = Number(part("day"));
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+  const local = new Date(Date.UTC(y, m - 1, d));
+  if (hour > 15 || (hour === 15 && minute >= 35)) {
+    local.setUTCDate(local.getUTCDate() + 1);
+    while (local.getUTCDay() === 0 || local.getUTCDay() === 6) {
+      local.setUTCDate(local.getUTCDate() + 1);
+    }
+  }
+  const target = local.toISOString().slice(0, 10);
+
   const endpoint = new URL(supabaseUrl + "/rest/v1/next_day_watchlist");
   endpoint.searchParams.set("select", "*");
   endpoint.searchParams.set("target_date", "eq." + target);
-  endpoint.searchParams.set("order", "direction.asc,score.desc");
+  endpoint.searchParams.set("order", "score.desc");
   endpoint.searchParams.set("limit", "20");
 
   const response = await fetch(endpoint, {
