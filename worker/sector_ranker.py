@@ -14,13 +14,9 @@ import requests
 NIFTY_BASE = "https://www.niftyindices.com"
 NSE_BASE = "https://www.nseindia.com"
 NSE_ALL_INDICES_URL = NSE_BASE + "/api/allIndices"
-NSE_INDEX_MEMBERS_URL = NSE_BASE + "/api/equity-stockIndices"
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
 UPSTOX_QUOTE_URL = "https://api.upstox.com/v3/market-quote/quotes"
 
-# These are the sectoral indices used for the scanner's sector-strength context.
-# NSE's current sectoral-index catalogue includes these sectors. We deliberately
-# keep the universe to sectoral indices, not broad/thematic indices.
 SECTOR_PAGES = {
     "NIFTY AUTO": "nifty-auto",
     "NIFTY BANK": "nifty-bank",
@@ -44,7 +40,31 @@ SECTOR_PAGES = {
     "NIFTY CONSUMER SERVICES": "nifty-consumer-services",
 }
 
-# Prefer a specific sectoral index when a stock belongs to multiple indices.
+# Direct constituent CSVs are used for membership. This avoids NSE's
+# browser/API endpoint, which is returning HTTP 404 from the worker.
+SECTOR_CSV_FILES = {
+    "NIFTY AUTO": ["ind_niftyautolist.csv"],
+    "NIFTY BANK": ["ind_niftybanklist.csv"],
+    "NIFTY FINANCIAL SERVICES": ["ind_niftyfinancialserviceslist.csv"],
+    "NIFTY FMCG": ["ind_niftyfmcglist.csv"],
+    "NIFTY IT": ["ind_niftyitlist.csv"],
+    "NIFTY PHARMA": ["ind_niftypharmalist.csv"],
+    "NIFTY HEALTHCARE": ["ind_niftyhealthcarelist.csv"],
+    "NIFTY METAL": ["ind_niftymetallist.csv"],
+    "NIFTY REALTY": ["ind_niftyrealtylist.csv"],
+    "NIFTY MEDIA": ["ind_niftymedialist.csv"],
+    "NIFTY CONSUMER DURABLES": ["ind_niftyconsumerdurableslist.csv"],
+    "NIFTY OIL & GAS": ["ind_niftyoilgaslist.csv", "ind_niftyoil-and-gaslist.csv"],
+    "NIFTY POWER": ["ind_niftypowerlist.csv"],
+    "NIFTY PSU BANK": ["ind_niftypsubanklist.csv"],
+    "NIFTY PRIVATE BANK": ["ind_niftyprivatebanklist.csv"],
+    "NIFTY TELECOMMUNICATION": ["ind_niftytelecomlist.csv", "ind_niftytelecommunicationslist.csv"],
+    "NIFTY CHEMICALS": ["ind_niftychemicalslist.csv"],
+    "NIFTY CONSTRUCTION": ["ind_niftyconstructionlist.csv"],
+    "NIFTY CAPITAL GOODS": ["ind_niftycapitalgoodslist.csv"],
+    "NIFTY CONSUMER SERVICES": ["ind_niftyconsumerserviceslist.csv"],
+}
+
 SECTOR_PRIORITY = [
     "NIFTY BANK",
     "NIFTY PRIVATE BANK",
@@ -120,17 +140,7 @@ def _canonical(value: str) -> str | None:
 
 
 class SectorRanker:
-    """
-    Sector context without NSE's browser-protected quote-equity endpoint.
-
-    Sources:
-      - NSE equity-stockIndices -> stock -> sector membership.
-      - NSE allIndices -> live sector-index percentage change.
-      - Upstox authenticated market quote -> fallback live sector-index data.
-
-    The NSE quote-equity endpoint is intentionally not used because it can
-    return HTTP 403 to ordinary server-side requests.
-    """
+    """Sector membership + live sector-index strength for scanner enrichment."""
 
     def __init__(self, refresh_seconds: int = 60):
         self.refresh_seconds = refresh_seconds
@@ -159,13 +169,11 @@ class SectorRanker:
         if not token:
             print("[SECTOR] UPSTOX_ACCESS_TOKEN missing; sector quotes unavailable")
             return
-
         try:
             response = requests.get(UPSTOX_INSTRUMENTS_URL, timeout=30)
             response.raise_for_status()
             raw = gzip.GzipFile(fileobj=io.BytesIO(response.content)).read()
             rows = __import__("json").loads(raw)
-
             found: dict[str, str] = {}
             for row in rows:
                 if row.get("segment") != "NSE_INDEX" or row.get("instrument_type") != "INDEX":
@@ -174,98 +182,74 @@ class SectorRanker:
                 sector = _canonical(name)
                 if sector and sector not in found:
                     found[sector] = str(row.get("instrument_key"))
-
             self._sector_keys = found
             print(f"[SECTOR] Upstox sector index keys: {len(found)}/{len(SECTOR_PAGES)}")
         except Exception as exc:
             print(f"[SECTOR] Upstox index master error: {exc}")
 
+    @staticmethod
+    def _csv_symbols(content: bytes) -> list[str]:
+        text = content.decode("utf-8-sig", errors="replace")
+        rows = list(csv.DictReader(io.StringIO(text)))
+        symbols: list[str] = []
+        for row in rows:
+            symbol = (
+                row.get("Symbol") or row.get("symbol") or row.get("SYMBOL") or
+                row.get("Trading Symbol") or row.get("TradingSymbol")
+            )
+            if symbol:
+                symbols.append(str(symbol).strip().upper())
+        return symbols
+
+    def _load_nifty_csv_membership(self) -> tuple[dict[str, str], int]:
+        mapping: dict[str, str] = {}
+        loaded = 0
+        for sector in SECTOR_PRIORITY:
+            ok = False
+            for filename in SECTOR_CSV_FILES.get(sector, []):
+                try:
+                    url = f"{NIFTY_BASE}/IndexConstituent/{filename}"
+                    response = self._session.get(url, timeout=12)
+                    response.raise_for_status()
+                    symbols = self._csv_symbols(response.content)
+                    if not symbols:
+                        continue
+                    for symbol in symbols:
+                        mapping.setdefault(symbol, sector)
+                    loaded += 1
+                    ok = True
+                    break
+                except Exception:
+                    continue
+            if not ok:
+                print(f"[SECTOR] constituent CSV unavailable: {sector}")
+        return mapping, loaded
+
     def _refresh_membership(self, force: bool = False) -> None:
         now = time.time()
         if not force and now - self._membership_last < self.membership_refresh_seconds:
             return
-
         with self._lock:
             now = time.time()
             if not force and now - self._membership_last < self.membership_refresh_seconds:
                 return
 
-            mapping: dict[str, str] = {}
-            loaded = 0
+            mapping, loaded = self._load_nifty_csv_membership()
 
-            # NSE's equity-stockIndices endpoint returns the actual constituent
-            # rows for an index. This avoids the separate niftyindices.com DNS
-            # dependency that was failing in the worker.
-            for sector in SECTOR_PRIORITY:
-                try:
-                    response = self._session.get(
-                        NSE_INDEX_MEMBERS_URL,
-                        params={"index": sector},
-                        timeout=12,
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    rows = payload.get("data") or []
-                    if not rows:
-                        print(f"[SECTOR] NSE returned 0 constituents: {sector}")
-                        continue
+            # If Nifty Indices is temporarily unavailable, retain the previous
+            # successful mapping instead of replacing it with an empty map.
+            if mapping:
+                self._symbol_sector = mapping
+                print(
+                    f"[SECTOR] membership map loaded: {len(mapping)} stocks "
+                    f"across {loaded}/{len(SECTOR_PRIORITY)} sector indices"
+                )
+            elif self._symbol_sector:
+                print("[SECTOR] membership refresh failed; keeping previous map")
+            else:
+                print("[SECTOR] membership map loaded: 0 stocks across 0 sector indices")
 
-                    count = 0
-                    for row in rows:
-                        symbol = row.get("symbol") or row.get("Symbol")
-                        if symbol:
-                            mapping.setdefault(str(symbol).strip().upper(), sector)
-                            count += 1
-                    if count:
-                        loaded += 1
-                except Exception as exc:
-                    print(f"[SECTOR] NSE membership load failed {sector}: {exc}")
-
-            # Fallback to Nifty Indices only if NSE could not provide anything.
-            if not mapping:
-                for sector in SECTOR_PRIORITY:
-                    slug = SECTOR_PAGES[sector]
-                    try:
-                        page_url = f"{NIFTY_BASE}/indices/equity/sectoral-indices/{slug}"
-                        page = self._session.get(page_url, timeout=12)
-                        page.raise_for_status()
-                        match = re.search(
-                            r"https?://www\\.niftyindices\\.com//IndexConstituent/([^\"']+?\.csv)",
-                            page.text,
-                            flags=re.IGNORECASE,
-                        )
-                        if not match:
-                            match = re.search(
-                                r"/?IndexConstituent/([^\"']+?\.csv)",
-                                page.text,
-                                flags=re.IGNORECASE,
-                            )
-                        if not match:
-                            continue
-                        csv_url = f"{NIFTY_BASE}/IndexConstituent/{match.group(1)}"
-                        csv_response = self._session.get(csv_url, timeout=12)
-                        csv_response.raise_for_status()
-                        text = csv_response.content.decode("utf-8-sig", errors="replace")
-                        rows = list(csv.DictReader(io.StringIO(text)))
-                        for row in rows:
-                            symbol = (
-                                row.get("Symbol") or row.get("symbol") or
-                                row.get("SYMBOL") or row.get("Trading Symbol") or
-                                row.get("TradingSymbol")
-                            )
-                            if symbol:
-                                mapping.setdefault(str(symbol).strip().upper(), sector)
-                        if rows:
-                            loaded += 1
-                    except Exception as exc:
-                        print(f"[SECTOR] Nifty fallback failed {sector}: {exc}")
-
-            self._symbol_sector = mapping
             self._membership_last = time.time()
-            print(
-                f"[SECTOR] membership map loaded: {len(mapping)} stocks "
-                f"across {loaded}/{len(SECTOR_PRIORITY)} sector indices"
-            )
 
     def _apply_ranked_changes(self, changes: dict[str, float]) -> None:
         if not changes:
@@ -280,8 +264,6 @@ class SectorRanker:
         )
 
     def _refresh_live_indices(self) -> None:
-        # Primary source: NSE allIndices. It gives the sector index's current
-        # percentage change directly, so no prev-close calculation is needed.
         try:
             response = self._session.get(NSE_ALL_INDICES_URL, timeout=10)
             response.raise_for_status()
@@ -304,7 +286,6 @@ class SectorRanker:
         except Exception as exc:
             print(f"[SECTOR] NSE allIndices error: {exc}")
 
-        # Fallback: Upstox authenticated index quotes.
         token = os.getenv("UPSTOX_ACCESS_TOKEN")
         if not token:
             return
@@ -312,43 +293,29 @@ class SectorRanker:
             self._load_upstox_sector_index_keys()
         if not self._sector_keys:
             return
-
-        headers = {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
         try:
             response = requests.get(
                 UPSTOX_QUOTE_URL,
                 params={"instrument_key": ",".join(self._sector_keys.values())},
-                headers=headers,
+                headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
                 timeout=10,
             )
             response.raise_for_status()
             payload = response.json()
             changes: dict[str, float] = {}
             by_key = {str(key).upper(): sector for sector, key in self._sector_keys.items()}
-
             for data_key, item in (payload.get("data") or {}).items():
-                # Upstox keys are returned as EXCHANGE:SYMBOL while instrument
-                # files use EXCHANGE|SYMBOL.
                 normalized = str(data_key).replace(":", "|", 1).upper()
                 sector = by_key.get(normalized)
                 if not sector:
                     continue
-
                 net_change = item.get("net_change")
                 prev_close = item.get("prev_close_price")
                 last_price = item.get("last_price")
-
                 if net_change is not None and prev_close not in (None, 0):
                     changes[sector] = float(net_change) / float(prev_close) * 100.0
                 elif last_price is not None and prev_close not in (None, 0):
-                    changes[sector] = (
-                        (float(last_price) - float(prev_close)) /
-                        float(prev_close) * 100.0
-                    )
-
+                    changes[sector] = (float(last_price) - float(prev_close)) / float(prev_close) * 100.0
             if changes:
                 self._apply_ranked_changes(changes)
             else:
@@ -361,7 +328,6 @@ class SectorRanker:
         now = time.time()
         if now - self._last < self.refresh_seconds:
             return
-
         with self._lock:
             now = time.time()
             if now - self._last < self.refresh_seconds:
@@ -371,11 +337,9 @@ class SectorRanker:
 
     def get(self, symbol: str, direction: str) -> dict[str, Any]:
         self.refresh()
-
         sector = self._symbol_sector.get(str(symbol or "").strip().upper())
         change = self._sector_change.get(sector) if sector else None
         rank = self._sector_rank.get(sector) if sector else None
-
         bonus = 0
         rank_type = None
         if rank is not None and rank <= 3 and change is not None:
@@ -385,7 +349,6 @@ class SectorRanker:
             elif direction == "SELL" and change < 0:
                 bonus = 10
                 rank_type = "TOP 3 LOSER"
-
         return {
             "sector": self._sector_display.get(sector, sector),
             "sector_change": change,
