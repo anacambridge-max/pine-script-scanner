@@ -124,13 +124,12 @@ export default function Home() {
   };
 
   const buildSelectorRow = (signal: Signal): SelectorRow => {
-    // TOP INTRADAY is deliberately sector-neutral. Sector rank is displayed
-    // only in the confirmed-signals table; it must never change this ranking.
-    const breakdown = signal.metadata?.score_breakdown as Record<string, unknown> | undefined;
-    const volumePart = Number(breakdown?.volume ?? 0);
-    const breakPart = Number(breakdown?.first_pdh_pdl_break ?? 0);
-    const candlePart = Number(breakdown?.candle_quality ?? 0);
-    const corePrime = Math.min(100, Math.max(0, ((volumePart + breakPart + candlePart) / 90) * 100));
+    // TOP INTRADAY is deliberately sector-neutral.
+    // The stored Prime score can include a 10-point sector bonus, so remove
+    // that bonus before ranking. Sector remains visible only in the table.
+    const rankType = signal.metadata?.sector_rank_type ?? "";
+    const sectorBonus = rankType === "TOP 3 GAINER" || rankType === "TOP 3 LOSER" ? 10 : 0;
+    const corePrime = Math.max(0, Math.min(100, Number(signal.score || 0) - sectorBonus));
 
     const rvol = Number(signal.rvol || 0);
     const rvolScore = Math.min(100, Math.max(0, ((rvol - 2) / 3) * 100));
@@ -140,8 +139,8 @@ export default function Home() {
     // Second-stage selector ranks only already-confirmed signals.
     // Sector rank/change is intentionally NOT part of the score.
     const selectorScore = Math.round(
-      corePrime * 0.60 +
-      rvolScore * 0.25 +
+      corePrime * 0.65 +
+      rvolScore * 0.20 +
       rrScore * 0.15
     );
 
@@ -226,7 +225,7 @@ export default function Home() {
             <strong>INTRADAY TRADE SELECTOR</strong>
             <span>Second-stage ranking of confirmed signals · does not create new signals</span>
           </div>
-          <div className="selectorNote">Core setup 60% · RVOL 25% · R:R 15% · Sector 0%</div>
+          <div className="selectorNote">Core setup 65% · RVOL 20% · R:R 15% · Sector 0%</div>
         </div>
 
         <div className="selectorGrid">
