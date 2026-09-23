@@ -394,7 +394,7 @@ export default function Home() {
         .watchPanel { background:#0b131f; min-width:0; }
         .watchPanelTitle { display:flex; justify-content:space-between; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
         .watchPanelTitle b { color:#9eabc0; }
-        .watchRow { display:grid; grid-template-columns:28px minmax(110px,170px) 1fr 42px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
+        .watchRow { display:grid; grid-template-columns:28px minmax(110px,170px) 55px 1fr 42px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
         .watchRank { width:23px; height:23px; display:grid; place-items:center; border-radius:6px; background:#141f2e; color:#9eabc0; font-size:9px; font-weight:900; }
         .watchSymbol strong { display:block; color:#edf2f8; font-size:10px; }
         .watchSymbol small { display:block; margin-top:2px; color:#61728a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
