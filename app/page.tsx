@@ -93,6 +93,59 @@ export default function Home() {
   const avgScore = signals.length ? Math.round(signals.reduce((sum, s) => sum + Number(s.score || 0), 0) / signals.length) : 0;
   const topSector = [...signals].filter(s => s.metadata?.sector).sort((a,b) => Number(b.score||0)-Number(a.score||0))[0]?.metadata?.sector;
 
+  type SelectorRow = {
+    signal: Signal;
+    selectorScore: number;
+    reasons: string[];
+  };
+
+  const buildSelectorRow = (signal: Signal): SelectorRow => {
+    const prime = Math.max(0, Math.min(100, Number(signal.score || 0)));
+    const rvol = Number(signal.rvol || 0);
+    const rvolScore = Math.min(100, Math.max(0, ((rvol - 2) / 3) * 100));
+    const rr = Number(signal.risk_reward || 0);
+    const rrScore = Math.min(100, Math.max(0, (rr / 2) * 100));
+    const rank = Number(signal.metadata?.sector_rank || 999);
+    const direction = signal.signal_type.toUpperCase().includes("BUY") ? "BUY" : "SELL";
+    const aligned = rank <= 3 && (
+      (direction === "BUY" && Number(signal.metadata?.sector_change_percent || 0) > 0) ||
+      (direction === "SELL" && Number(signal.metadata?.sector_change_percent || 0) < 0)
+    );
+    const sectorScore = aligned ? 100 : rank <= 5 ? 50 : 0;
+
+    // Second-stage selector only ranks already-confirmed signals.
+    // It does not create or alter BUY/SELL signals.
+    const selectorScore = Math.round(
+      prime * 0.55 +
+      rvolScore * 0.20 +
+      rrScore * 0.15 +
+      sectorScore * 0.10
+    );
+
+    const reasons: string[] = [
+      "Prime " + prime,
+      "RVOL " + fmt(signal.rvol) + "×",
+      "R:R " + fmt(signal.risk_reward),
+    ];
+    if (aligned) reasons.push(rank <= 3 ? "Sector TOP 3 " + (direction === "BUY" ? "GAINER" : "LOSER") : "Sector aligned");
+    else if (signal.metadata?.sector) reasons.push("Sector #" + (rank < 999 ? rank : "—"));
+    return { signal, selectorScore, reasons };
+  };
+
+  const selectorRows = signals
+    .filter(s => s.signal_state === "CONFIRMED")
+    .map(buildSelectorRow);
+
+  const topBuys = selectorRows
+    .filter(x => x.signal.signal_type.toUpperCase().includes("BUY"))
+    .sort((a,b) => b.selectorScore - a.selectorScore)
+    .slice(0, 3);
+
+  const topSells = selectorRows
+    .filter(x => x.signal.signal_type.toUpperCase().includes("SELL"))
+    .sort((a,b) => b.selectorScore - a.selectorScore)
+    .slice(0, 3);
+
   const columns: { key: SortKey; label: string; align?: "right" }[] = [
     { key: "signal_time", label: "TIME" },
     { key: "symbol", label: "SYMBOL / COMPANY" },
@@ -145,6 +198,50 @@ export default function Home() {
       </section>
 
       {error && <div className="error">{error}</div>}
+
+      <section className="selectorWrap">
+        <div className="selectorHead">
+          <div>
+            <strong>INTRADAY TRADE SELECTOR</strong>
+            <span>Second-stage ranking of confirmed signals · does not create new signals</span>
+          </div>
+          <div className="selectorNote">Prime 55% · RVOL 20% · R:R 15% · Sector 10%</div>
+        </div>
+
+        <div className="selectorGrid">
+          <div className="selectorPanel buyPanel">
+            <div className="selectorPanelTitle"><span>TOP BUY CANDIDATES</span><b>{topBuys.length}</b></div>
+            {topBuys.length === 0 ? <div className="selectorEmpty">No confirmed BUY signals</div> :
+              topBuys.map((item, index) => (
+                <div className="selectorRow" key={item.signal.id}>
+                  <div className="selectorRank">{index + 1}</div>
+                  <div className="selectorSymbol">
+                    <strong>{item.signal.symbol}</strong>
+                    <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
+                  </div>
+                  <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
+                  <div className="selectorScore buyScore">{item.selectorScore}</div>
+                </div>
+              ))}
+          </div>
+
+          <div className="selectorPanel sellPanel">
+            <div className="selectorPanelTitle"><span>TOP SELL CANDIDATES</span><b>{topSells.length}</b></div>
+            {topSells.length === 0 ? <div className="selectorEmpty">No confirmed SELL signals</div> :
+              topSells.map((item, index) => (
+                <div className="selectorRow" key={item.signal.id}>
+                  <div className="selectorRank">{index + 1}</div>
+                  <div className="selectorSymbol">
+                    <strong>{item.signal.symbol}</strong>
+                    <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
+                  </div>
+                  <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
+                  <div className="selectorScore sellScore">{item.selectorScore}</div>
+                </div>
+              ))}
+          </div>
+        </div>
+      </section>
 
       <section className="tableWrap">
         <div className="tableHead">
@@ -218,6 +315,25 @@ export default function Home() {
         .searchBox { display:flex; align-items:center; gap:8px; width:280px; border:1px solid #223149; background:#0b1320; border-radius:9px; padding:0 11px; color:#63738b; }
         .searchBox span { font-size:18px; } .searchBox input { width:100%; border:0; outline:0; background:transparent; color:#dbe3ef; padding:9px 0; font-size:11px; } .searchBox input::placeholder { color:#53627a; }
         .error { margin-bottom:12px; padding:11px 14px; background:#2a151d; color:#ff9bac; border:1px solid #592733; border-radius:9px; font-size:12px; }
+        .selectorWrap { max-width:1680px; margin:0 auto 12px; overflow:hidden; border:1px solid #1c293b; border-radius:14px; background:rgba(10,17,28,.96); box-shadow:0 12px 32px rgba(0,0,0,.16); }
+        .selectorHead { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:13px 16px; border-bottom:1px solid #1b2739; background:linear-gradient(180deg,#101a2a,#0c1421); }
+        .selectorHead strong { display:block; color:#e7edf6; font-size:12px; letter-spacing:.8px; }
+        .selectorHead span { display:block; margin-top:3px; color:#65758d; font-size:9px; }
+        .selectorNote { color:#71829a; font-size:9px; white-space:nowrap; }
+        .selectorGrid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#1b2739; }
+        .selectorPanel { background:#0b131f; min-width:0; }
+        .selectorPanelTitle { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
+        .selectorPanelTitle b { color:#9eabc0; font-size:9px; }
+        .selectorRow { display:grid; grid-template-columns:28px minmax(105px,160px) 1fr 42px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
+        .selectorRank { width:23px; height:23px; display:grid; place-items:center; border-radius:6px; background:#141f2e; color:#9eabc0; font-size:9px; font-weight:900; }
+        .selectorSymbol strong { display:block; color:#edf2f8; font-size:10px; }
+        .selectorSymbol small { display:block; margin-top:2px; color:#61728a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
+        .selectorReasons { display:flex; flex-wrap:wrap; gap:4px; }
+        .selectorReasons span { padding:3px 5px; border:1px solid #25354b; border-radius:4px; background:#111b29; color:#8394ab; font-size:8px; white-space:nowrap; }
+        .selectorScore { display:grid; place-items:center; min-width:35px; padding:5px 4px; border-radius:6px; font-size:11px; font-weight:900; }
+        .buyScore { color:#3cdda0; background:#0d291f; border:1px solid #1e6048; }
+        .sellScore { color:#ff7189; background:#2a151c; border:1px solid #63303d; }
+        .selectorEmpty { padding:17px 13px; color:#596a82; font-size:9px; }
         .tableWrap { overflow:hidden; background:rgba(10,17,28,.96); border:1px solid #1c293b; border-radius:14px; box-shadow:0 16px 45px rgba(0,0,0,.2); }
         .tableHead { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #1b2739; background:linear-gradient(180deg,#101a2a,#0c1421); }
         .tableHead strong { display:block; font-size:13px; color:#e5ebf4; } .tableHead span { color:#66768e; font-size:10px; margin-left:9px; }
@@ -242,7 +358,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .tableScroll { max-height:calc(100vh - 430px); } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
       `}</style>
     </main>
   );
