@@ -243,13 +243,27 @@ class ScannerWorker:
             traceback.print_exc()
 
     def _next_day_loop(self) -> None:
+        refreshed_today = False
+
         while self.running:
             try:
                 now = pd.Timestamp.now(tz="Asia/Kolkata")
-                if now.hour < 15 or (now.hour == 15 and now.minute < 35):
+                after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 35)
+
+                if not after_close:
                     analysis_date = now.normalize() - pd.Timedelta(days=1)
                 else:
                     analysis_date = now.normalize()
+
+                    # After 15:35, do one authoritative Upstox V3 intraday
+                    # refresh for today's complete session. This avoids relying
+                    # on the websocket's final post-close update and guarantees
+                    # the D-1 scan uses today's completed candles.
+                    if not refreshed_today:
+                        print("[D-1] Market close reached; refreshing today's completed candles...")
+                        self.feed.refresh_today_history()
+                        refreshed_today = True
+
                 self._run_next_day_scan(analysis_date)
             except Exception as exc:
                 print(f"[D-1 LOOP ERROR] {exc}")
@@ -287,7 +301,7 @@ class ScannerWorker:
             f"Prime live scanner starting with {len(self.instrument_map)} "
             "F&O stock underlyings — 3m PDH/PDL + 2x volume mode..."
         )
-        print("Seeding one month of 1-minute history...")
+        print("Seeding ~60 calendar days of 1-minute history in safe <=28-day chunks...")
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
 
