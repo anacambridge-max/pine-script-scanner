@@ -156,7 +156,7 @@ class SupabaseStore:
             item = dict(row)
             item["id"] = row_id
             item["instrument_key"] = instrument_lookup.get(symbol)
-            item["target_date"] = str(
+            item["target_date"] = item.get("target_date") or str(
                 (datetime.fromisoformat(analysis_date).date() + timedelta(days=1))
             )
             payload.append(_json_safe(item))
