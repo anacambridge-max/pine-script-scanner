@@ -268,16 +268,6 @@ class ScannerWorker:
         )
         self._heartbeat_thread.start()
 
-        # D-1 watchlist is generated from the same seeded 1-minute history.
-        # It never creates live BUY/SELL signals; the 3-minute engine remains
-        # the confirmation layer.
-        self._next_day_thread = threading.Thread(
-            target=self._next_day_loop,
-            name="next-day-scanner",
-            daemon=True,
-        )
-        self._next_day_thread.start()
-
         print(
             f"Prime live scanner starting with {len(self.instrument_map)} "
             "F&O stock underlyings — 3m PDH/PDL + 2x volume mode..."
@@ -285,6 +275,14 @@ class ScannerWorker:
         print("Seeding one month of 1-minute history...")
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
+
+        # Start D-1 analysis only after the one-month history is fully seeded.
+        self._next_day_thread = threading.Thread(
+            target=self._next_day_loop,
+            name="next-day-scanner",
+            daemon=True,
+        )
+        self._next_day_thread.start()
 
         # Backfill sector/rank for today's existing signals so rows created
         # before the sector-ranker fix also become enriched.
