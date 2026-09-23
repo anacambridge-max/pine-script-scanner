@@ -2,6 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type WatchlistRow = {
+  id: string; analysis_date: string; target_date: string; symbol: string; company_name: string | null;
+  direction: "BUY" | "SELL"; score: number; grade: string | null; close: number | null;
+  change_percent: number | null; volume_multiple: number | null; body_ratio: number | null;
+  compression_score: number | null; range_expansion: number | null; breakout_proximity: number | null;
+  setup: string | null; reasons: string[]; metrics?: Record<string, number>;
+};
+
 type Signal = {
   id: string; symbol: string; instrument_key: string | null; signal_type: string;
   signal_state: string | null; score: number | null; grade: string | null;
@@ -24,12 +32,23 @@ const timeFmt = (value: string | null) =>
 export default function Home() {
   type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [watchlist, setWatchlist] = useState<WatchlistRow[]>([]);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
+
+  async function loadWatchlist() {
+    try {
+      const response = await fetch("/api/watchlist", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) setWatchlist(payload.rows ?? []);
+    } catch {
+      // Watchlist is supplemental; live confirmed signals remain independent.
+    }
+  }
 
   async function loadSignals() {
     try {
@@ -48,8 +67,13 @@ export default function Home() {
 
   useEffect(() => {
     loadSignals();
+    loadWatchlist();
     const timer = window.setInterval(loadSignals, 5000);
-    return () => window.clearInterval(timer);
+    const watchTimer = window.setInterval(loadWatchlist, 30000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(watchTimer);
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -243,6 +267,37 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="watchlistWrap">
+        <div className="watchlistHead">
+          <div>
+            <strong>NEXT-DAY PRIME WATCHLIST</strong>
+            <span>D-1 completed data · top 3 BUY + top 3 SELL candidates · watchlist only, not an entry signal</span>
+          </div>
+          <div className="watchlistBadge">{watchlist.length} candidates</div>
+        </div>
+        <div className="watchGrid">
+          {(["BUY", "SELL"] as const).map((direction) => {
+            const rows = watchlist.filter((x) => x.direction === direction).slice(0, 3);
+            return <div className={direction === "BUY" ? "watchPanel buyPanel" : "watchPanel sellPanel"} key={direction}>
+              <div className="watchPanelTitle"><span>{direction === "BUY" ? "TOP BUY WATCHLIST" : "TOP SELL WATCHLIST"}</span><b>{rows.length}</b></div>
+              {rows.length === 0 ? <div className="watchEmpty">No D-1 candidate yet</div> :
+                rows.map((row, index) => (
+                  <div className="watchRow" key={row.id}>
+                    <div className="watchRank">{index + 1}</div>
+                    <div className="watchSymbol"><strong>{row.symbol}</strong><small>{row.company_name ?? row.symbol}</small></div>
+                    <div className="watchReasons">
+                      <span>D-1 {fmt(row.change_percent)}%</span>
+                      <span>Vol {fmt(row.volume_multiple)}×</span>
+                      {row.reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}
+                    </div>
+                    <div className="watchScore">{row.score}</div>
+                  </div>
+                ))}
+            </div>;
+          })}
+        </div>
+      </section>
+
       <section className="tableWrap">
         <div className="tableHead">
           <div><strong>Confirmed Signals</strong><span>{filtered.length} rows · click any column to sort</span></div>
@@ -334,6 +389,25 @@ export default function Home() {
         .buyScore { color:#3cdda0; background:#0d291f; border:1px solid #1e6048; }
         .sellScore { color:#ff7189; background:#2a151c; border:1px solid #63303d; }
         .selectorEmpty { padding:17px 13px; color:#596a82; font-size:9px; }
+        .watchlistWrap { max-width:1680px; margin:0 auto 12px; overflow:hidden; border:1px solid #1c293b; border-radius:14px; background:rgba(10,17,28,.96); box-shadow:0 12px 32px rgba(0,0,0,.16); }
+        .watchlistHead { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:13px 16px; border-bottom:1px solid #1b2739; background:linear-gradient(180deg,#101a2a,#0c1421); }
+        .watchlistHead strong { display:block; color:#e7edf6; font-size:12px; letter-spacing:.8px; }
+        .watchlistHead span { display:block; margin-top:3px; color:#65758d; font-size:9px; }
+        .watchlistBadge { color:#aebbd0; background:#111d2d; border:1px solid #263850; border-radius:999px; padding:5px 9px; font-size:9px; font-weight:800; }
+        .watchGrid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#1b2739; }
+        .watchPanel { background:#0b131f; min-width:0; }
+        .watchPanelTitle { display:flex; justify-content:space-between; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
+        .watchPanelTitle b { color:#9eabc0; }
+        .watchRow { display:grid; grid-template-columns:28px minmax(110px,170px) 1fr 42px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
+        .watchRank { width:23px; height:23px; display:grid; place-items:center; border-radius:6px; background:#141f2e; color:#9eabc0; font-size:9px; font-weight:900; }
+        .watchSymbol strong { display:block; color:#edf2f8; font-size:10px; }
+        .watchSymbol small { display:block; margin-top:2px; color:#61728a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
+        .watchReasons { display:flex; flex-wrap:wrap; gap:4px; }
+        .watchReasons span { padding:3px 5px; border:1px solid #25354b; border-radius:4px; background:#111b29; color:#8394ab; font-size:8px; white-space:nowrap; }
+        .watchScore { display:grid; place-items:center; min-width:35px; padding:5px 4px; border-radius:6px; color:#d8e2ef; background:#151f2e; border:1px solid #2a3a51; font-size:11px; font-weight:900; }
+        .watchPanel.buyPanel .watchScore { color:#3cdda0; background:#0d291f; border-color:#1e6048; }
+        .watchPanel.sellPanel .watchScore { color:#ff7189; background:#2a151c; border-color:#63303d; }
+        .watchEmpty { padding:17px 13px; color:#596a82; font-size:9px; }
         .tableWrap { overflow:hidden; background:rgba(10,17,28,.96); border:1px solid #1c293b; border-radius:14px; box-shadow:0 16px 45px rgba(0,0,0,.2); }
         .tableHead { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #1b2739; background:linear-gradient(180deg,#101a2a,#0c1421); }
         .tableHead strong { display:block; font-size:13px; color:#e5ebf4; } .tableHead span { color:#66768e; font-size:10px; margin-left:9px; }
@@ -358,7 +432,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.watchGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
       `}</style>
     </main>
   );
