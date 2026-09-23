@@ -229,14 +229,6 @@ class NextDayScanner:
             except Exception:
                 continue
 
-        buys = sorted(
-            [x for x in all_rows if x["direction"] == "BUY"],
-            key=lambda x: x["score"],
-            reverse=True,
-        )[: self.top_n]
-        sells = sorted(
-            [x for x in all_rows if x["direction"] == "SELL"],
-            key=lambda x: x["score"],
-            reverse=True,
-        )[: self.top_n]
-        return buys + sells
+        # The user-facing objective is a small 2–3 stock watchlist, not a
+        # six-stock list. Keep the strongest movers regardless of direction.
+        return sorted(all_rows, key=lambda x: x["score"], reverse=True)[: self.top_n]
