@@ -184,15 +184,15 @@ class UpstoxV3Feed:
                 f"instruments_with_data={len(self._live_started)}"
             )
 
-    def seed_history(self) -> None:
-        """Seed ~60 calendar days of 1-minute history using <=28-day API chunks.
+    def seed_history(self, days: int = 60) -> None:
+        """Seed 1-minute history using safe <=28-day API chunks.
 
-        Upstox V3 limits 1-minute historical retrieval to one month per request,
-        so a single 60-day request returns 400. We fetch backward in safe chunks
-        and merge candles by timestamp.
+        The live 3M engine only needs the previous trading session plus the
+        current session, so the worker can bootstrap a small minute history at
+        the open. Longer daily history is fetched separately for watchlists.
         """
         to_date = date.today()
-        from_date = to_date - timedelta(days=60)
+        from_date = to_date - timedelta(days=max(days, 2))
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.access_token}",
@@ -230,7 +230,11 @@ class UpstoxV3Feed:
             except Exception as exc:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
-    def get_daily_histories(self, lookback_days: int = 60) -> dict[str, pd.DataFrame]:
+    def get_daily_histories(
+        self,
+        lookback_days: int = 60,
+        to_date: date | None = None,
+    ) -> dict[str, pd.DataFrame]:
         """Fetch compact daily OHLCV history for the pre-open hot-stock scan.
 
         Upstox V3 supports daily candles with long historical ranges, so the
@@ -238,7 +242,7 @@ class UpstoxV3Feed:
         seed. This keeps the pre-open news/technical scan independent from the
         live engine's minute-history bootstrap.
         """
-        to_date = date.today() - timedelta(days=1)
+        to_date = to_date or (date.today() - timedelta(days=1))
         from_date = to_date - timedelta(days=max(lookback_days, 30))
         headers = {
             "Accept": "application/json",
