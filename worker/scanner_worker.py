@@ -204,6 +204,8 @@ class ScannerWorker:
             if (now.hour, now.minute) >= (9, 15):
                 return
 
+            today = now.date()
+
             # Capture the Moneycontrol snapshot immediately, while we are still
             # inside the pre-open window. This prevents later 09:15+ headlines
             # from leaking into a morning scan if the data fetch takes time.
@@ -214,7 +216,6 @@ class ScannerWorker:
             # Use compact daily candles for the pre-open technical scan. The
             # heavy 1-minute seed is reserved for the live 3M engine.
             histories = self.feed.get_daily_histories(lookback_days=60)
-            today = now.date()
             available_dates: list[Any] = []
             for frame in histories.values():
                 if frame.empty:
