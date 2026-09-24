@@ -20,9 +20,41 @@ export async function GET() {
   const part = (type: string) => parts.find(p => p.type === type)?.value || "00";
   const target = `${part("year")}-${part("month")}-${part("day")}`;
 
+  // The database row represents the completed session used by the
+  // morning scan. Therefore, before today's open, the latest valid row is
+  // usually yesterday (or the latest prior trading session), not today's date.
+  // Resolve the latest stored analysis date first so the UI never shows an
+  // empty list simply because the calendar date changed.
+  const latestEndpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
+  latestEndpoint.searchParams.set("select", "trade_date");
+  latestEndpoint.searchParams.set("trade_date", "lte." + target);
+  latestEndpoint.searchParams.set("order", "trade_date.desc");
+  latestEndpoint.searchParams.set("limit", "1");
+
+  const latestResponse = await fetch(latestEndpoint, {
+    headers: { apikey: serviceKey, Authorization: "Bearer " + serviceKey },
+    cache: "no-store",
+  });
+  const latestBody = await latestResponse.text();
+  if (!latestResponse.ok) {
+    return NextResponse.json(
+      { error: "Supabase latest hot-stock date query failed.", details: latestBody },
+      { status: latestResponse.status }
+    );
+  }
+
+  const latestRows = JSON.parse(latestBody);
+  if (!latestRows.length) {
+    return NextResponse.json(
+      { trade_date: null, rows: [] },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
+  }
+
+  const analysisDate = latestRows[0].trade_date;
   const endpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
   endpoint.searchParams.set("select", "*");
-  endpoint.searchParams.set("trade_date", "eq." + target);
+  endpoint.searchParams.set("trade_date", "eq." + analysisDate);
   endpoint.searchParams.set("order", "score.desc");
   endpoint.searchParams.set("limit", "10");
 
@@ -39,7 +71,7 @@ export async function GET() {
   }
 
   return NextResponse.json(
-    { trade_date: target, rows: JSON.parse(body) },
+    { trade_date: analysisDate, rows: JSON.parse(body) },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }
