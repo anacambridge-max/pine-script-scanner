@@ -267,7 +267,11 @@ export default function Home() {
         <div className="watchlistHead">
           <div>
             <strong>NEXT-DAY PRIME WATCHLIST</strong>
-            <span>D-1 completed data · top 3 potential movers · watchlist only, not an entry signal</span>
+            <span>
+              {watchlist.length
+                ? `For ${watchlist[0].target_date} · based on completed ${watchlist[0].analysis_date} session · top 3 potential movers · watchlist only, not an entry signal`
+                : "Latest completed session · top 3 potential movers · watchlist only, not an entry signal"}
+            </span>
           </div>
           <div className="watchlistBadge">{watchlist.length} candidates</div>
         </div>
