@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type WatchlistRow = {
-  id: string; analysis_date: string; target_date: string; symbol: string; company_name: string | null;
-  direction: "BUY" | "SELL"; score: number; grade: string | null; close: number | null;
+type HotStock = {
+  id: string; trade_date: string; symbol: string; company_name: string | null;
+  score: number; technical_score: number; news_score: number; close: number | null;
   change_percent: number | null; volume_multiple: number | null; body_ratio: number | null;
   compression_score: number | null; range_expansion: number | null; breakout_proximity: number | null;
-  setup: string | null; reasons: string[]; metrics?: Record<string, number>;
+  news_impact: string | null; news_summary: string | null; news_titles: Array<{title:string;url:string;impact:string}>;
+  reasons: string[]; setup: string | null;
 };
 
 type Signal = {
@@ -32,7 +33,7 @@ const timeFmt = (value: string | null) =>
 export default function Home() {
   type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistRow[]>([]);
+  const [hotStocks, setHotStocks] = useState<HotStock[]>([]);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -40,13 +41,13 @@ export default function Home() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
 
-  async function loadWatchlist() {
+  async function loadHotStocks() {
     try {
-      const response = await fetch("/api/watchlist", { cache: "no-store" });
+      const response = await fetch("/api/hot-stocks", { cache: "no-store" });
       const payload = await response.json();
-      if (response.ok) setWatchlist(payload.rows ?? []);
+      if (response.ok) setHotStocks(payload.rows ?? []);
     } catch {
-      // Watchlist is supplemental; live confirmed signals remain independent.
+      // Morning hot stocks are supplemental; live confirmed signals remain independent.
     }
   }
 
@@ -67,12 +68,12 @@ export default function Home() {
 
   useEffect(() => {
     loadSignals();
-    loadWatchlist();
+    loadHotStocks();
     const timer = window.setInterval(loadSignals, 5000);
-    const watchTimer = window.setInterval(loadWatchlist, 30000);
+    const hotTimer = window.setInterval(loadHotStocks, 30000);
     return () => {
       window.clearInterval(timer);
-      window.clearInterval(watchTimer);
+      window.clearInterval(hotTimer);
     };
   }, []);
 
@@ -263,29 +264,34 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="watchlistWrap">
+      <section className="watchlistWrap hotStocksWrap">
         <div className="watchlistHead">
           <div>
-            <strong>NEXT-DAY PRIME WATCHLIST</strong>
+            <strong>TODAY'S HOT STOCKS</strong>
             <span>
-              {watchlist.length
-                ? `For ${watchlist[0].target_date} · based on completed ${watchlist[0].analysis_date} session · top 3 potential movers · watchlist only, not an entry signal`
-                : "Latest completed session · top 3 potential movers · watchlist only, not an entry signal"}
+              {hotStocks.length
+                ? `Pre-open scan · completed ${hotStocks[0].trade_date} session + fresh Moneycontrol news · movement watchlist only · no BUY/SELL direction`
+                : "Pre-open movement scanner · previous completed session + Moneycontrol catalysts · no BUY/SELL direction"}
             </span>
           </div>
-          <div className="watchlistBadge">{watchlist.length} candidates</div>
+          <div className="watchlistBadge">{hotStocks.length} candidates</div>
         </div>
-        <div className="watchSingle">
-          {watchlist.length === 0 ? <div className="watchEmpty">No D-1 candidate yet. The scanner builds this from the latest completed session.</div> :
-            watchlist.slice(0, 3).map((row, index) => (
-              <div className="watchRow" key={row.id}>
+        <div className="hotSingle">
+          {hotStocks.length === 0 ? <div className="watchEmpty">Run the scanner before market open to build today's hot-stock list.</div> :
+            hotStocks.slice(0, 5).map((row, index) => (
+              <div className="hotRow" key={row.id}>
                 <div className="watchRank">{index + 1}</div>
                 <div className="watchSymbol"><strong>{row.symbol}</strong><small>{row.company_name ?? row.symbol}</small></div>
-                <div className={row.direction === "BUY" ? "watchDirection buyText" : "watchDirection sellText"}>{row.direction}</div>
-                <div className="watchReasons">
-                  <span>D-1 {fmt(row.change_percent)}%</span>
-                  <span>Vol {fmt(row.volume_multiple)}×</span>
-                  {row.reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}
+                <div className="hotMetrics">
+                  {row.change_percent != null && <span>D-1 {fmt(row.change_percent)}%</span>}
+                  {row.volume_multiple != null && <span>Vol {fmt(row.volume_multiple)}×</span>}
+                  <span>Tech {row.technical_score}</span>
+                  <span>News {row.news_score}</span>
+                  {row.news_impact && row.news_impact !== "NO MATERIAL NEWS" && <span>{row.news_impact}</span>}
+                  {row.reasons.slice(0, 2).map((reason) => <span key={reason}>{reason}</span>)}
+                </div>
+                <div className="hotNews" title={row.news_summary ?? ""}>
+                  {row.news_summary ? row.news_summary : "No material Moneycontrol headline matched"}
                 </div>
                 <div className="watchScore">{row.score}</div>
               </div>
@@ -390,6 +396,11 @@ export default function Home() {
         .watchlistHead span { display:block; margin-top:3px; color:#65758d; font-size:9px; }
         .watchlistBadge { color:#aebbd0; background:#111d2d; border:1px solid #263850; border-radius:999px; padding:5px 9px; font-size:9px; font-weight:800; }
         .watchSingle { background:#0b131f; }
+        .hotSingle { background:#0b131f; }
+        .hotRow { display:grid; grid-template-columns:28px minmax(110px,170px) minmax(300px,1.1fr) minmax(300px,1.6fr) 42px; gap:9px; align-items:center; padding:10px 12px; border-top:1px solid #162233; }
+        .hotMetrics { display:flex; flex-wrap:wrap; gap:4px; }
+        .hotMetrics span { padding:3px 5px; border:1px solid #25354b; border-radius:4px; background:#111b29; color:#8394ab; font-size:8px; white-space:nowrap; }
+        .hotNews { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#7e8fa7; font-size:8px; }
         .watchDirection { font-size:9px; font-weight:900; letter-spacing:.5px; }
         .watchPanel { background:#0b131f; min-width:0; }
         .watchPanelTitle { display:flex; justify-content:space-between; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
