@@ -44,6 +44,7 @@ class ScannerWorker:
         self._morning_hot_done: set[str] = set()
         self._next_day_thread: threading.Thread | None = None
         self._next_day_done: set[str] = set()
+        self._daily_history_cache: dict[str, dict[str, pd.DataFrame]] = {}
         self.feed = self._new_feed()
         self.running = True
         self.captured_count = 0
@@ -258,8 +259,15 @@ class ScannerWorker:
 
     def _run_next_day_scan(self, analysis_date: pd.Timestamp) -> None:
         try:
-            histories = self.feed.get_histories()
             cutoff = analysis_date.date()
+            cache_key = cutoff.isoformat()
+            histories = self._daily_history_cache.get(cache_key)
+            if histories is None:
+                histories = self.feed.get_daily_histories(
+                    lookback_days=60,
+                    to_date=cutoff,
+                )
+                self._daily_history_cache[cache_key] = histories
             available_dates = []
             for frame in histories.values():
                 if frame.empty:
@@ -344,8 +352,9 @@ class ScannerWorker:
                     # on the websocket's final post-close update and guarantees
                     # the D-1 scan uses today's completed candles.
                     if not refreshed_today:
-                        print("[D-1] Market close reached; refreshing today's completed candles...")
-                        self.feed.refresh_today_history()
+                        print("[D-1] Market close reached; daily history will include today's completed session.")
+                        # The D-1 scanner now uses Upstox V3 daily candles directly.
+                        # No heavy 1-minute refresh is needed here.
                         refreshed_today = True
 
                 self._run_next_day_scan(analysis_date)
@@ -390,8 +399,11 @@ class ScannerWorker:
         # creates BUY/SELL signals.
         self._run_morning_hot_scan()
 
-        print("Seeding ~60 calendar days of 1-minute history in safe <=28-day chunks...")
-        self.feed.seed_history()
+        # Live 3M PDH/PDL + volume logic only needs the previous trading
+        # session and the current session. Do not block the opening scan with
+        # a 60-day minute-history bootstrap.
+        print("Seeding 3 calendar days of 1-minute history for the live 3M engine...")
+        self.feed.seed_history(days=3)
         self._heartbeat("HISTORY_READY")
 
         # Start D-1 analysis only after the full minute-history seed is ready.
