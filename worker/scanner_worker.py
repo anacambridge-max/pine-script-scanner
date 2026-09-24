@@ -207,6 +207,18 @@ class ScannerWorker:
                 return
 
             actual_date = max(available_dates)
+
+            # Never silently fall back to an older session. If we are building
+            # today's watchlist before the close, the required D-1 session is
+            # yesterday. If that completed session is not present in history
+            # yet, wait and retry on the next loop.
+            if actual_date != cutoff:
+                print(
+                    f"[D-1] waiting for completed session {cutoff}; "
+                    f"latest available session is {actual_date}"
+                )
+                return
+
             key = actual_date.isoformat()
             if key in self._next_day_done:
                 return
@@ -225,6 +237,12 @@ class ScannerWorker:
                 for instrument_key, symbol in self.instrument_map.items()
             }
             count = self.supabase.write_next_day_watchlist(rows, instrument_lookup)
+            if count == 0:
+                print(
+                    f"[D-1] {key}: no qualifying candidates yet; "
+                    "will retry on the next cycle"
+                )
+                return
             self._next_day_done.add(key)
             print(
                 f"[D-1] {key} -> {target_date}: "
