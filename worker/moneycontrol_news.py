@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Iterable
+from urllib.parse import urljoin
 
 import requests
 
@@ -124,7 +125,8 @@ def fetch_moneycontrol_news(max_items: int = 30) -> list[NewsItem]:
         try:
             parser = _LinkParser()
             parser.feed(_fetch(source))
-            for url, title in parser.links:
+            for raw_url, title in parser.links:
+                url = urljoin(source, raw_url)
                 if "moneycontrol.com" not in url:
                     continue
                 key = _norm(title)
