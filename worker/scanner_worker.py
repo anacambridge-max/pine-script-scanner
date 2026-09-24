@@ -204,7 +204,16 @@ class ScannerWorker:
             if (now.hour, now.minute) >= (9, 15):
                 return
 
-            histories = self.feed.get_histories()
+            # Capture the Moneycontrol snapshot immediately, while we are still
+            # inside the pre-open window. This prevents later 09:15+ headlines
+            # from leaking into a morning scan if the data fetch takes time.
+            print(f"[MORNING] Fetching Moneycontrol catalysts for {today.isoformat()}...")
+            news_items = fetch_moneycontrol_news(max_items=40)
+            print(f"[MORNING] Moneycontrol headlines loaded: {len(news_items)}")
+
+            # Use compact daily candles for the pre-open technical scan. The
+            # heavy 1-minute seed is reserved for the live 3M engine.
+            histories = self.feed.get_daily_histories(lookback_days=60)
             today = now.date()
             available_dates: list[Any] = []
             for frame in histories.values():
@@ -220,10 +229,6 @@ class ScannerWorker:
                 return
 
             analysis_date = max(available_dates)
-            print(f"[MORNING] Fetching Moneycontrol catalysts for {today.isoformat()}...")
-            news_items = fetch_moneycontrol_news(max_items=40)
-            print(f"[MORNING] Moneycontrol headlines loaded: {len(news_items)}")
-
             rows = self.morning_hot_scanner.scan(
                 histories,
                 self.instrument_map,
@@ -379,15 +384,16 @@ class ScannerWorker:
             f"Prime live scanner starting with {len(self.instrument_map)} "
             "F&O stock underlyings — 3m PDH/PDL + 2x volume mode..."
         )
+        # Pre-open scan runs BEFORE the heavy minute-history bootstrap.
+        # It uses compact daily candles + the Moneycontrol snapshot and never
+        # creates BUY/SELL signals.
+        self._run_morning_hot_scan()
+
         print("Seeding ~60 calendar days of 1-minute history in safe <=28-day chunks...")
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
 
-        # Pre-open scan: completed-session technical activity + fresh Moneycontrol news.
-        # It is direction-neutral and never creates BUY/SELL signals.
-        self._run_morning_hot_scan()
-
-        # Start D-1 analysis only after the one-month history is fully seeded.
+        # Start D-1 analysis only after the full minute-history seed is ready.
         self._next_day_thread = threading.Thread(
             target=self._next_day_loop,
             name="next-day-scanner",
