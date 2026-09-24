@@ -230,6 +230,62 @@ class UpstoxV3Feed:
             except Exception as exc:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
+    def get_daily_histories(self, lookback_days: int = 60) -> dict[str, pd.DataFrame]:
+        """Fetch compact daily OHLCV history for the pre-open hot-stock scan.
+
+        Upstox V3 supports daily candles with long historical ranges, so the
+        morning scanner does not need to wait for the much heavier 1-minute
+        seed. This keeps the pre-open news/technical scan independent from the
+        live engine's minute-history bootstrap.
+        """
+        to_date = date.today() - timedelta(days=1)
+        from_date = to_date - timedelta(days=max(lookback_days, 30))
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.access_token}",
+        }
+        histories: dict[str, pd.DataFrame] = {}
+
+        for index, instrument_key in enumerate(self.instrument_keys):
+            encoded = requests.utils.quote(instrument_key, safe="")
+            url = (
+                f"https://api.upstox.com/v3/historical-candle/{encoded}/days/1/"
+                f"{to_date.isoformat()}/{from_date.isoformat()}"
+            )
+            try:
+                response = requests.get(url, headers=headers, timeout=20)
+                response.raise_for_status()
+                candles = response.json().get("data", {}).get("candles", [])
+                rows = []
+                for c in candles:
+                    if len(c) < 6:
+                        continue
+                    ts = pd.to_datetime(c[0], utc=True).tz_convert("Asia/Kolkata")
+                    rows.append({
+                        "timestamp": ts,
+                        "open": float(c[1]),
+                        "high": float(c[2]),
+                        "low": float(c[3]),
+                        "close": float(c[4]),
+                        "volume": float(c[5]),
+                    })
+                if rows:
+                    histories[instrument_key] = (
+                        pd.DataFrame(rows)
+                        .sort_values("timestamp")
+                        .reset_index(drop=True)
+                    )
+                if (index + 1) % 25 == 0:
+                    print(f"Morning daily seed: {index + 1}/{len(self.instrument_keys)}")
+            except Exception as exc:
+                print(f"Morning daily history failed for {instrument_key}: {exc}")
+
+        print(
+            f"[MORNING] Daily history ready for {len(histories)}/"
+            f"{len(self.instrument_keys)} instruments"
+        )
+        return histories
+
     def get_histories(self) -> dict[str, pd.DataFrame]:
         """Return a snapshot of seeded/live 1-minute histories for analysis."""
         return {
