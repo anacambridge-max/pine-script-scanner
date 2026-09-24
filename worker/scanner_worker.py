@@ -12,6 +12,8 @@ import pandas as pd
 from engine import PrimeConfig, PrimeEngine
 from worker.instruments import load_fno_stock_instruments
 from worker.next_day_scanner import NextDayScanner
+from worker.morning_hot_scanner import MorningHotScanner
+from worker.moneycontrol_news import fetch_moneycontrol_news
 from worker.supabase_store import SupabaseStore
 from worker.sector_ranker import SectorRanker
 from worker.telegram import send_confirmed
@@ -38,6 +40,8 @@ class ScannerWorker:
         }
         self.sector_ranker = SectorRanker()
         self.next_day_scanner = NextDayScanner(top_n=3)
+        self.morning_hot_scanner = MorningHotScanner(top_n=5)
+        self._morning_hot_done: set[str] = set()
         self._next_day_thread: threading.Thread | None = None
         self._next_day_done: set[str] = set()
         self.feed = self._new_feed()
@@ -190,6 +194,62 @@ class ScannerWorker:
             target += pd.Timedelta(days=1)
         return target.isoformat()
 
+
+    def _run_morning_hot_scan(self) -> None:
+        try:
+            now = pd.Timestamp.now(tz="Asia/Kolkata")
+            trade_date = now.date().isoformat()
+            if trade_date in self._morning_hot_done:
+                return
+            if (now.hour, now.minute) >= (9, 15):
+                return
+
+            histories = self.feed.get_histories()
+            today = now.date()
+            available_dates: list[Any] = []
+            for frame in histories.values():
+                if frame.empty:
+                    continue
+                ts = pd.to_datetime(frame["timestamp"])
+                dates = ts.dt.date
+                valid = dates[dates < today]
+                if not valid.empty:
+                    available_dates.append(valid.max())
+            if not available_dates:
+                print("[MORNING] No completed session available yet; will retry on next startup/cycle")
+                return
+
+            analysis_date = max(available_dates)
+            print(f"[MORNING] Fetching Moneycontrol catalysts for {today.isoformat()}...")
+            news_items = fetch_moneycontrol_news(max_items=40)
+            print(f"[MORNING] Moneycontrol headlines loaded: {len(news_items)}")
+
+            rows = self.morning_hot_scanner.scan(
+                histories,
+                self.instrument_map,
+                self.company_map,
+                analysis_date,
+                news_items,
+            )
+            count = self.supabase.write_morning_hot_stocks(rows)
+            if count:
+                self._morning_hot_done.add(trade_date)
+                print(
+                    f"[MORNING] {today.isoformat()}: {count} HOT STOCKS stored "
+                    f"from completed {analysis_date.isoformat()} + Moneycontrol news"
+                )
+                for row in rows:
+                    print(
+                        f"[MORNING] {row['symbol']} score={row['score']} "
+                        f"technical={row['technical_score']} news={row['news_score']} "
+                        f"impact={row['news_impact']}"
+                    )
+            else:
+                print("[MORNING] No hot-stock rows generated")
+        except Exception as exc:
+            print(f"[MORNING ERROR] {exc}")
+            traceback.print_exc()
+
     def _run_next_day_scan(self, analysis_date: pd.Timestamp) -> None:
         try:
             histories = self.feed.get_histories()
@@ -322,6 +382,10 @@ class ScannerWorker:
         print("Seeding ~60 calendar days of 1-minute history in safe <=28-day chunks...")
         self.feed.seed_history()
         self._heartbeat("HISTORY_READY")
+
+        # Pre-open scan: completed-session technical activity + fresh Moneycontrol news.
+        # It is direction-neutral and never creates BUY/SELL signals.
+        self._run_morning_hot_scan()
 
         # Start D-1 analysis only after the one-month history is fully seeded.
         self._next_day_thread = threading.Thread(
