@@ -21,6 +21,15 @@ MONEYCONTROL_SOURCES = (
     "https://www.moneycontrol.com/features/rss/news/business/companies/",
 )
 
+OTHER_MARKET_SOURCES = (
+    "https://economictimes.indiatimes.com/markets/stocks/news",
+    "https://www.business-standard.com/markets/news",
+    "https://www.livemint.com/market",
+    "https://www.cnbctv18.com/market/",
+    "https://news.google.com/rss/search?q=Indian+stock+market+stocks+in+news+F%26O+India&hl=en-IN&gl=IN&ceid=IN:en",
+    "https://news.google.com/rss/search?q=Indian+corporate+announcements+stocks+India&hl=en-IN&gl=IN&ceid=IN:en",
+)
+
 POSITIVE_WORDS = (
     "order win", "order worth", "approval", "approved", "acquired", "acquisition",
     "contract", "jda", "joint development", "bonus", "funding", "investment",
@@ -117,7 +126,7 @@ def _impact(text: str) -> str:
     return "NEWS"
 
 
-def fetch_moneycontrol_news(max_items: int = 30) -> list[NewsItem]:
+def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
     """Fetch current Moneycontrol stock-watch/news headlines for the morning scan.
 
     The scanner treats Moneycontrol as a catalyst source, not as a trading signal.
@@ -125,19 +134,20 @@ def fetch_moneycontrol_news(max_items: int = 30) -> list[NewsItem]:
     seen: set[str] = set()
     items: list[NewsItem] = []
 
-    for source in MONEYCONTROL_SOURCES:
+    for source in MONEYCONTROL_SOURCES + OTHER_MARKET_SOURCES:
         try:
             parser = _LinkParser()
             parser.feed(_fetch(source))
             for raw_url, title in parser.links:
                 url = urljoin(source, raw_url)
-                if "moneycontrol.com" not in url:
+                allowed_hosts = ("moneycontrol.com", "economictimes.indiatimes.com", "business-standard.com", "livemint.com", "cnbctv18.com", "news.google.com")
+                if not any(host in url.lower() for host in allowed_hosts):
                     continue
                 key = _norm(title)
                 if key in seen:
                     continue
                 seen.add(key)
-                if not any(token in url for token in ("/news/", "/features/")):
+                if not any(token in url for token in ("/news/", "/features/", "/market", "/markets", "news.google.com/rss/")):
                     continue
                 impact = _impact(title)
                 items.append(NewsItem(title=title, url=url, text=title, impact=impact))
