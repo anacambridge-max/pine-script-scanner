@@ -12,8 +12,12 @@ import requests
 
 
 MONEYCONTROL_SOURCES = (
+    # Hindi markets is intentionally first because Moneycontrol often publishes
+    # pre-open catalyst articles there before the English market article appears.
+    "https://hindi.moneycontrol.com/news/markets",
     "https://www.moneycontrol.com/news/tags/stocks-to-watch.html",
     "https://www.moneycontrol.com/news/tags/stocks-in-news.html",
+    "https://www.moneycontrol.com/news/business/markets/",
     "https://www.moneycontrol.com/features/rss/news/business/companies/",
 )
 
