@@ -169,6 +169,41 @@ class SupabaseStore:
         )
         return len(payload)
 
+
+    def write_morning_hot_stocks(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        payload = []
+        for row in rows:
+            item = dict(row)
+            trade_date = str(item.get("trade_date") or "")
+            symbol = str(item.get("symbol") or "")
+            item["id"] = f"{trade_date}|{symbol}"
+            payload.append(_json_safe(item))
+        self._request(
+            "POST",
+            "morning_hot_stocks",
+            params={"on_conflict": "trade_date,symbol"},
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            data=json.dumps(payload, allow_nan=False),
+        )
+        return len(payload)
+
+    def get_morning_hot_stocks(self, trade_date: str | None = None) -> list[dict[str, Any]]:
+        if not trade_date:
+            trade_date = datetime.now().date().isoformat()
+        response = self._request(
+            "GET",
+            "morning_hot_stocks",
+            params={
+                "select": "*",
+                "trade_date": f"eq.{trade_date}",
+                "order": "score.desc",
+                "limit": "20",
+            },
+        )
+        return response.json()
+
     def get_next_day_watchlist(self, target_date: str | None = None) -> list[dict[str, Any]]:
         if not target_date:
             target_date = datetime.now().date().isoformat()
