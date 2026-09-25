@@ -145,7 +145,7 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
             # link, so also capture the HTML title and social/meta title.
             direct_titles: list[str] = []
             patterns = (
-                r'<meta[^>]+(?:property|name)=["'](?:og:title|twitter:title)["'][^>]+content=["']([^"']+)["']',
+                r"<meta[^>]+(?:property|name)=[\"\'](?:og:title|twitter:title)[\"\'][^>]+content=[\"\']([^\"\']+)[\"\']",
                 r'<title[^>]*>(.*?)</title>',
             )
             for pattern in patterns:
