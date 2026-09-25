@@ -20,15 +20,14 @@ export async function GET() {
   const part = (type: string) => parts.find(p => p.type === type)?.value || "00";
   const target = `${part("year")}-${part("month")}-${part("day")}`;
 
-  // The database row represents the completed session used by the
-  // morning scan. Therefore, before today's open, the latest valid row is
-  // usually yesterday (or the latest prior trading session), not today's date.
-  // Resolve the latest stored analysis date first so the UI never shows an
-  // empty list simply because the calendar date changed.
+  // The morning scan stores the completed session date (yesterday) in
+  // trade_date. Multiple runs on the same morning can therefore have the
+  // same trade_date. Select the LATEST RUN by created_at so the dashboard
+  // never keeps showing an older pre-fix list.
   const latestEndpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
-  latestEndpoint.searchParams.set("select", "trade_date");
+  latestEndpoint.searchParams.set("select", "trade_date,created_at");
   latestEndpoint.searchParams.set("trade_date", "lte." + target);
-  latestEndpoint.searchParams.set("order", "trade_date.desc");
+  latestEndpoint.searchParams.set("order", "created_at.desc");
   latestEndpoint.searchParams.set("limit", "1");
 
   const latestResponse = await fetch(latestEndpoint, {
