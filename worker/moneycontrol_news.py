@@ -137,8 +137,33 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
 
     for source in MONEYCONTROL_SOURCES + OTHER_MARKET_SOURCES:
         try:
+            raw_html = _fetch(source)
             parser = _LinkParser()
-            parser.feed(_fetch(source))
+            parser.feed(raw_html)
+
+            # Direct article pages may not expose their own headline as an <a>
+            # link, so also capture the HTML title and social/meta title.
+            direct_titles: list[str] = []
+            patterns = (
+                r'<meta[^>]+(?:property|name)=["'](?:og:title|twitter:title)["'][^>]+content=["']([^"']+)["']',
+                r'<title[^>]*>(.*?)</title>',
+            )
+            for pattern in patterns:
+                for match in re.findall(pattern, raw_html, flags=re.IGNORECASE | re.DOTALL):
+                    title = re.sub(r"\s+", " ", html.unescape(match)).strip()
+                    if title:
+                        direct_titles.append(title)
+
+            for title in direct_titles:
+                key = _norm(title)
+                if key and key not in seen and len(key) >= 12:
+                    seen.add(key)
+                    items.append(
+                        NewsItem(title=title[:300], url=source, text=title, impact=_impact(title))
+                    )
+                    if len(items) >= max_items:
+                        return items
+
             for raw_url, title in parser.links:
                 url = urljoin(source, raw_url)
                 allowed_hosts = ("moneycontrol.com", "economictimes.indiatimes.com", "business-standard.com", "livemint.com", "cnbctv18.com", "news.google.com")
@@ -162,6 +187,14 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
 
 def _aliases(symbol: str, company_name: str) -> list[str]:
     aliases = [_norm(symbol), _norm(company_name)]
+    known_aliases = {
+        "policybzr": ["pb fintech", "policybazaar", "policy bazaar"],
+        "aubank": ["au small finance bank", "au bank"],
+        "icicigi": ["icici lombard", "icici lombard general insurance"],
+        "bajajfinsv": ["bajaj finserv"],
+        "suzlon": ["suzlon energy"],
+    }
+    aliases.extend(_norm(x) for x in known_aliases.get(_norm(symbol), []))
     company = _norm(company_name)
     # Company names often contain legal suffixes that make exact matching noisy.
     company = re.sub(
