@@ -140,6 +140,13 @@ class MorningHotScanner:
                 if not tech:
                     continue
                 news_score, news_impact, news_titles = match_news(symbol, company, news_items)
+
+                # Hot Stocks must satisfy BOTH sides: completed-session
+                # technical activity AND at least one relevant fresh news
+                # catalyst. Technical-only names are not eligible.
+                if news_score <= 0 or not news_titles:
+                    continue
+
                 score = round(tech["technical_score"] * 0.70 + news_score)
                 reasons = list(tech["reasons"])
                 if news_titles:
@@ -167,37 +174,5 @@ class MorningHotScanner:
                 })
             except Exception:
                 continue
-
-        # News-only F&O names are also considered. Their technical score is
-        # zero, so strong catalyst names can still enter the watchlist.
-        existing = {row["symbol"] for row in rows}
-        for instrument_key, symbol in instrument_map.items():
-            if symbol in existing:
-                continue
-            company = company_map.get(instrument_key, symbol)
-            news_score, news_impact, news_titles = match_news(symbol, company, news_items)
-            if news_score <= 0:
-                continue
-            rows.append({
-                "trade_date": analysis_date.isoformat(),
-                "symbol": symbol,
-                "instrument_key": instrument_key,
-                "company_name": company,
-                "score": news_score,
-                "technical_score": 0,
-                "news_score": int(news_score),
-                "close": None,
-                "change_percent": None,
-                "volume_multiple": None,
-                "body_ratio": None,
-                "range_expansion": None,
-                "compression_score": None,
-                "breakout_proximity": None,
-                "news_impact": news_impact,
-                "news_summary": news_titles[0]["title"] if news_titles else None,
-                "news_titles": news_titles,
-                "reasons": [f"Moneycontrol: {news_impact}"],
-                "setup": "NEWS CATALYST",
-            })
 
         return sorted(rows, key=lambda x: (x["score"], x["news_score"], x["technical_score"]), reverse=True)[: self.top_n]
