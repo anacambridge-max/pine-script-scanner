@@ -30,9 +30,14 @@ fi
 
 source .venv/bin/activate
 
-echo "Installing/updating Python dependencies..."
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+if [ ! -f ".venv/.prime_deps_ready" ]; then
+  echo "Installing Python dependencies (first run only)..."
+  python -m pip install --upgrade pip
+  python -m pip install -r requirements.txt
+  touch .venv/.prime_deps_ready
+else
+  echo "Python dependencies already ready."
+fi
 
 echo ""
 echo "=============================================="
@@ -40,6 +45,7 @@ echo " PRIME TECHNICAL LIVE SCANNER"
 echo "=============================================="
 echo "Starting Upstox -> Prime Engine -> Supabase"
 echo "Keep this Terminal window open."
+echo "Morning run: start this once between 08:30 and 09:00 IST."
 echo "Press Ctrl+C to stop."
 echo "=============================================="
 echo ""
