@@ -12,9 +12,9 @@ import requests
 
 
 MONEYCONTROL_SOURCES = (
-    # Hindi markets is intentionally first because Moneycontrol often publishes
-    # pre-open catalyst articles there before the English market article appears.
-    "https://www.moneycontrol.com/news/business/markets/stocks-to-watch-today-nse-spectraa-technology-sonaselection-meesho-sedemac-mechatronics-welspun-living-bharat-dynamics-max-estates-in-focus-on-24-september-14036780.html",
+    # Use live Moneycontrol sections/tags only. Do NOT hard-code a dated
+    # Stocks To Watch article: that would make its named companies look like
+    # fresh news every morning.
     "https://hindi.moneycontrol.com/news/markets",
     "https://www.moneycontrol.com/news/tags/stocks-to-watch.html",
     "https://www.moneycontrol.com/news/tags/stocks-in-news.html",
