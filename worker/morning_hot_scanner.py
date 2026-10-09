@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from urllib.parse import urlparse
 from typing import Any
 
 import pandas as pd
@@ -205,7 +206,7 @@ class MorningHotScanner:
                         news_impact = scored["direction"].upper() + " · " + scored["tier"]
                         news_titles = [{
                             "title": item.title[:240], "url": item.url, "impact": news_impact,
-                            "source": getattr(item, "source", "") or item.url.split("/")[2],
+                            "source": (urlparse(item.url).netloc.removeprefix("www.") if item.url and urlparse(item.url).netloc else (getattr(item, "source", "") or "unknown")),
                             "published_at": scored["published_ist"], "direction": scored["direction"]
                         }]
                         published_ist = scored["published_ist"]
