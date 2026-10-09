@@ -88,8 +88,8 @@ def alias_matches(text: str, aliases: list[str]) -> bool:
 
 def extract_stock_specific_text(title: str, body: str, aliases: list[str]) -> str:
     """Keep only roundup sentences/bullets that mention this stock; avoid cross-stock catalyst leakage."""
-    chunks = re.split(r"(?:\\r?\\n|(?<=[.!?])\\s+|\\s+[•▪●]\s+|\\s+[-–—]\s+)", body or "")
-    matched = [chunk.strip(" \\t•▪●-–—") for chunk in chunks if chunk.strip() and alias_matches(chunk, aliases)]
+    chunks = re.split(r"(?:\r?\n|(?<=[.!?])\s+|\s+[•▪●]\s+|\s+[-–—]\s+)", body or "")
+    matched = [chunk.strip(" \t•▪●-–—") for chunk in chunks if chunk.strip() and alias_matches(chunk, aliases)]
     title_match = alias_matches(title or "", aliases)
     parts = [title.strip()] if title_match and title else []
     parts.extend(matched)
