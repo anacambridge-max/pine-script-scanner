@@ -11,7 +11,11 @@ export async function GET() {
   }
   const headers = { apikey: key, Authorization: "Bearer " + key };
   const endpoint = new URL(base + "/rest/v1/nse_premarket_study");
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => parts.find(p => p.type === type)?.value || "00";
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
   endpoint.searchParams.set("select", "*");
+  endpoint.searchParams.set("trade_date", "eq." + today);
   endpoint.searchParams.set("order", "snapshot_time.desc,preopen_score.desc");
   endpoint.searchParams.set("limit", "200");
   const response = await fetch(endpoint, { headers, cache: "no-store" });
