@@ -7,7 +7,9 @@ type HotStock = {
   score: number; technical_score: number; news_score: number; close: number | null;
   change_percent: number | null; volume_multiple: number | null; body_ratio: number | null;
   compression_score: number | null; range_expansion: number | null; breakout_proximity: number | null;
-  news_impact: string | null; news_summary: string | null; news_titles: Array<{title:string;url:string;impact:string}>;
+  news_impact: string | null; news_summary: string | null;
+  news_source?: string | null; published_ist?: string | null; direction?: string | null;
+  news_titles: Array<{title:string;url:string;impact:string}>;
   reasons: string[]; setup: string | null;
 };
 
@@ -295,7 +297,8 @@ export default function Home() {
                   {row.reasons.slice(0, 2).map((reason) => <span key={reason}>{reason}</span>)}
                 </div>
                 <div className="hotNews" title={row.news_summary ?? ""}>
-                  {row.news_summary ? row.news_summary : "No material Moneycontrol headline matched"}
+                  <span>{row.news_summary ? row.news_summary : "No eligible fresh stock-specific headline"}</span>
+                  {(row.news_source || row.published_ist) && <small>{row.news_source ?? "News source"}{row.published_ist ? " · " + new Date(row.published_ist).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true }) + " IST" : ""}</small>}
                 </div>
                 <div className="watchScore">{row.score}</div>
               </div>
@@ -432,7 +435,9 @@ export default function Home() {
         .hotRow { display:grid; grid-template-columns:28px minmax(110px,170px) minmax(300px,1.1fr) minmax(300px,1.6fr) 42px; gap:9px; align-items:center; padding:10px 12px; border-top:1px solid #162233; }
         .hotMetrics { display:flex; flex-wrap:wrap; gap:4px; }
         .hotMetrics span { padding:3px 5px; border:1px solid #25354b; border-radius:4px; background:#111b29; color:#8394ab; font-size:8px; white-space:nowrap; }
-        .hotNews { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#7e8fa7; font-size:8px; }
+        .hotNews { min-width:0; overflow:hidden; color:#7e8fa7; font-size:8px; }
+        .hotNews span,.hotNews small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .hotNews small { margin-top:4px; color:#52647d; font-size:7px; }
         .watchDirection { font-size:9px; font-weight:900; letter-spacing:.5px; }
         .watchPanel { background:#0b131f; min-width:0; }
         .watchPanelTitle { display:flex; justify-content:space-between; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
