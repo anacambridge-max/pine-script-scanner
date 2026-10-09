@@ -352,7 +352,10 @@ class ScannerWorker:
                 )
             except Exception as history_exc:
                 print(f"[MORNING HISTORY WARNING] {history_exc}")
-            if count or technical_count or not rows:
+            # Mark complete only after at least one of the two watchlists
+            # was successfully persisted. An empty/blocked NSE/news fetch should
+            # retry on the next loop instead of freezing an empty dashboard.
+            if count > 0 or technical_count > 0:
                 self._morning_hot_done.add(trade_date)
             print(
                 f"[MORNING] {today.isoformat()}: hot={count}, technical-only={technical_count}; "
