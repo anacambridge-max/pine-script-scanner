@@ -1,0 +1,37 @@
+name: Pre-market module tests
+
+on:
+  push:
+    paths:
+      - "worker/hot_news_core.py"
+      - "worker/hot_stocks_config.py"
+      - "worker/moneycontrol_news.py"
+      - "worker/morning_hot_scanner.py"
+      - "worker/nse_premarket.py"
+      - "tests/test_hot_news_core.py"
+      - "tests/test_nse_premarket.py"
+      - ".github/workflows/pre-market-tests.yml"
+  pull_request:
+    paths:
+      - "worker/hot_news_core.py"
+      - "worker/hot_stocks_config.py"
+      - "worker/moneycontrol_news.py"
+      - "worker/morning_hot_scanner.py"
+      - "worker/nse_premarket.py"
+      - "tests/test_hot_news_core.py"
+      - "tests/test_nse_premarket.py"
+      - ".github/workflows/pre-market-tests.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pandas requests
+      - name: Run pre-market and hot-stock tests
+        run: python -m pytest -q tests/test_hot_news_core.py tests/test_nse_premarket.py
