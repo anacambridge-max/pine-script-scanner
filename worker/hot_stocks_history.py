@@ -39,6 +39,32 @@ class HotStockHistory:
         with out.open("w",newline="",encoding="utf-8") as f:
             writer=csv.writer(f); writer.writerow(headers); writer.writerows(rows)
         return str(out)
+    def update_next_session_outcomes(self, candidate_date: str, next_session: dict[str, dict[str, float]]) -> int:
+        """Fill next-session move/range metrics for candidates from candidate_date."""
+        updated = 0
+        with sqlite3.connect(self.path) as db:
+            for symbol, prices in next_session.items():
+                close = float(prices.get("close") or 0)
+                high = float(prices.get("high") or 0)
+                low = float(prices.get("low") or 0)
+                if close <= 0 or high <= 0 or low <= 0:
+                    continue
+                rows = db.execute(
+                    "SELECT list_type, close FROM candidates WHERE trade_date=? AND symbol=? AND next_day_move_pct IS NULL",
+                    (candidate_date, symbol),
+                ).fetchall()
+                for list_type, base_close in rows:
+                    if not base_close or float(base_close) <= 0:
+                        continue
+                    move_pct = (close / float(base_close) - 1) * 100
+                    range_pct = (high - low) / float(base_close) * 100
+                    db.execute(
+                        "UPDATE candidates SET next_day_move_pct=?, next_day_range_pct=? WHERE trade_date=? AND symbol=? AND list_type=?",
+                        (move_pct, range_pct, candidate_date, symbol, list_type),
+                    )
+                    updated += 1
+        return updated
+
     def backtest(self, min_move_pct: float = 1.5) -> dict[str, Any]:
         with sqlite3.connect(self.path) as db:
             rows=db.execute("""SELECT COUNT(*), SUM(CASE WHEN ABS(next_day_move_pct)>=? THEN 1 ELSE 0 END),
