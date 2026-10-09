@@ -145,13 +145,27 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                 try:
                     root = ET.fromstring(raw_html)
                     for node in root.findall(".//item") + root.findall(".//{http://www.w3.org/2005/Atom}entry"):
-                        title_node = node.find("title") or node.find("{http://www.w3.org/2005/Atom}title")
+                        # ElementTree leaf elements are falsey; never use "or" to select
+                        # RSS/Atom nodes because a valid empty node may be discarded.
+                        title_node = node.find("title")
+                        if title_node is None:
+                            title_node = node.find("{http://www.w3.org/2005/Atom}title")
                         title = (title_node.text or "").strip() if title_node is not None else ""
                         link_node = node.find("link")
+                        if link_node is None:
+                            link_node = node.find("{http://www.w3.org/2005/Atom}link")
                         url = (link_node.text or "").strip() if link_node is not None and link_node.text else ""
                         if not url and link_node is not None:
                             url = link_node.attrib.get("href", "")
-                        date_node = node.find("pubDate") or node.find("published") or node.find("updated")
+                        date_node = node.find("pubDate")
+                        if date_node is None:
+                            date_node = node.find("published")
+                        if date_node is None:
+                            date_node = node.find("updated")
+                        if date_node is None:
+                            date_node = node.find("{http://www.w3.org/2005/Atom}published")
+                        if date_node is None:
+                            date_node = node.find("{http://www.w3.org/2005/Atom}updated")
                         published = (date_node.text or "").strip() if date_node is not None else ""
                         if title and published:
                             key = _norm(title)
