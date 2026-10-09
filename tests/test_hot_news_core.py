@@ -48,7 +48,10 @@ def test_news_outside_preopen_or_previous_close_window_is_rejected():
     from worker.hot_news_core import freshness_weight
     now = datetime(2026, 10, 8, 8, 30, tzinfo=IST)
     assert freshness_weight(datetime(2026, 10, 7, 14, 0, tzinfo=IST), now) == 0.0
-    after_cutoff = datetime(2026, 10, 8, 9, 5, tzinfo=IST)
+    # The scan may finish at 09:15, but only news published by 09:00 is eligible.
+    scan_finish = datetime(2026, 10, 8, 9, 10, tzinfo=IST)
+    assert freshness_weight(datetime(2026, 10, 8, 8, 55, tzinfo=IST), scan_finish) == 1.0
+    after_cutoff = datetime(2026, 10, 8, 9, 16, tzinfo=IST)
     assert freshness_weight(datetime(2026, 10, 8, 8, 55, tzinfo=IST), after_cutoff) == 0.0
 
 
