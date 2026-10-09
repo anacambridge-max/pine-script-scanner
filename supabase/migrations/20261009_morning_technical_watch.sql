@@ -33,3 +33,8 @@ create index if not exists morning_technical_watch_date_score_idx
 alter table public.morning_technical_watch add column if not exists news_source text;
 alter table public.morning_technical_watch add column if not exists published_ist timestamptz;
 alter table public.morning_technical_watch add column if not exists direction text;
+
+-- The hot-stock writer emits these optional news audit fields too.
+alter table public.morning_hot_stocks add column if not exists news_source text;
+alter table public.morning_hot_stocks add column if not exists published_ist timestamptz;
+alter table public.morning_hot_stocks add column if not exists direction text;
