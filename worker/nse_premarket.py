@@ -205,7 +205,7 @@ def _flatten_oi(row: dict[str, Any]) -> dict[str, Any]:
         current_oi = _number(_pick(merged, "latestOI", "currentOI", "openInterest", "oi"))
         previous_oi = _number(_pick(merged, "prevOI", "previousOI", "previousOpenInterest", "prevOpenInterest"))
         if current_oi is not None and previous_oi is not None and previous_oi > 0:
-            oi_change_pct = (current_oi / previous_oi - 1.0) * 100.0
+            oi_change_pct = round((current_oi / previous_oi - 1.0) * 100.0, 4)
     volume = _number(_pick(merged, "volume", "totalTradedVolume", "tradedVolume"))
     return {"symbol": str(symbol or "").strip().upper(), "oi_change_pct": oi_change_pct,
             "oi_volume": volume, "raw": merged}
