@@ -226,12 +226,14 @@ class ScannerWorker:
                 dates = ts.dt.date
                 valid = dates[dates < today]
                 if not valid.empty:
-                    available_dates.append(valid.max())
+                    available_dates.extend(valid.tolist())
             if not available_dates:
                 print("[MORNING] No completed session available yet; will retry on next startup/cycle")
                 return
 
-            analysis_date = max(available_dates)
+            session_dates = sorted(set(available_dates))
+            analysis_date = session_dates[-1]
+            previous_session_date = session_dates[-2] if len(session_dates) > 1 else None
             rows, technical_only = self.morning_hot_scanner.scan_all(
                 histories, self.instrument_map, self.company_map, analysis_date, news_items
             )
@@ -242,6 +244,26 @@ class ScannerWorker:
             try:
                 from worker.hot_stocks_history import HotStockHistory
                 history = HotStockHistory()
+                if previous_session_date is not None:
+                    next_session_prices: dict[str, dict[str, float]] = {}
+                    for instrument_key, frame in histories.items():
+                        if frame.empty:
+                            continue
+                        frame_dates = pd.to_datetime(frame["timestamp"]).dt.date
+                        day = frame.loc[frame_dates == analysis_date]
+                        if day.empty:
+                            continue
+                        symbol = self.instrument_map.get(instrument_key, instrument_key.split("|", 1)[-1])
+                        next_session_prices[symbol] = {
+                            "close": float(day["close"].iloc[-1]),
+                            "high": float(day["high"].max()),
+                            "low": float(day["low"].min()),
+                        }
+                    updated_outcomes = history.update_next_session_outcomes(
+                        previous_session_date.isoformat(), next_session_prices
+                    )
+                    if updated_outcomes:
+                        print(f"[MORNING BACKTEST] Updated {updated_outcomes} prior-session outcomes")
                 history.save(rows, analysis_date.isoformat(), "HOT")
                 history.save(technical_only, analysis_date.isoformat(), "TECHNICAL_ONLY")
                 history.export_csv()
