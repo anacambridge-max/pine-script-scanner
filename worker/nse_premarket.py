@@ -133,6 +133,11 @@ def _fetch_payloads_with_retry() -> tuple[dict[str, Any] | list[Any], dict[str, 
 
         # A complete response is ideal; a partial response is still useful
         # and is preferable to losing both sources because one endpoint failed.
+        if attempt >= MAX_ATTEMPTS and not latest_preopen and not latest_oi:
+            logger.warning(
+                "[NSE PRE-MARKET] graceful skip after attempt %s/%s; both sources unavailable",
+                attempt, MAX_ATTEMPTS,
+            )
         if latest_preopen and latest_oi:
             return latest_preopen, latest_oi
         if latest_preopen or latest_oi:
