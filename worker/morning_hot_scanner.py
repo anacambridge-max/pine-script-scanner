@@ -182,7 +182,8 @@ class MorningHotScanner:
                     scored = score_news(stock_context, item.published_at, now=scan_time)
                     if not scored["news_score"]:
                         continue
-                    if not seen_store.is_new(item.url, item.title, symbol, getattr(item, "source", "") or item.url):
+                    dedupe_headline = item.title if title_match else stock_context
+                    if not seen_store.is_new(item.url, dedupe_headline, symbol, getattr(item, "source", "") or item.url):
                         continue
                     candidates.append((scored, item, 1.0 if title_match else 0.5))
                 if candidates:
