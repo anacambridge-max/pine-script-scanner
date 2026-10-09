@@ -363,11 +363,11 @@ class ScannerWorker:
                 )
             except Exception as history_exc:
                 print(f"[MORNING HISTORY WARNING] {history_exc}")
-            # Mark complete only after at least one of the two watchlists
-            # was successfully persisted. An empty/blocked NSE/news fetch should
-            # retry on the next loop instead of freezing an empty dashboard.
-            if count > 0 or technical_count > 0:
-                self._morning_hot_done.add(trade_date)
+            # Reaching this point means both watchlist writes and the local
+            # history step completed. An empty result is still a valid scan:
+            # do not refetch news and daily candles every 30 seconds until 09:15.
+            # Failures before this point are caught by the outer handler and remain retryable.
+            self._morning_hot_done.add(trade_date)
             print(
                 f"[MORNING] {today.isoformat()}: hot={count}, technical-only={technical_count}; "
                 f"completed session={analysis_date.isoformat()}, news items={len(news_items)}"
