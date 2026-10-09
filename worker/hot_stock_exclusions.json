@@ -1,0 +1,5 @@
+{
+  "_instructions": "Optional manual exclusions. Use ISO dates and NSE symbols. Populate only from official results calendars and the NSE F&O ban list. Filters are disabled by default in hot_stocks_config.py.",
+  "results_dates": {},
+  "fo_ban_dates": {}
+}
