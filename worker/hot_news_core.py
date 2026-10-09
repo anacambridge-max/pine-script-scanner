@@ -31,20 +31,47 @@ def parse_published_at(value: Any) -> datetime | None:
     if dt is None or dt.tzinfo is None: return None
     return dt.astimezone(IST)
 
+def _previous_trading_day(day: date) -> date:
+    try:
+        from worker.hot_stocks_config import NSE_HOLIDAYS
+    except Exception:
+        NSE_HOLIDAYS = set()
+    candidate = day - timedelta(days=1)
+    while candidate.weekday() >= 5 or candidate.isoformat() in NSE_HOLIDAYS:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 def freshness_weight(published: datetime | None, now: datetime | None = None,
                      max_age_hours: int = DEFAULT_MAX_AGE_HOURS) -> float:
-    if published is None or published.tzinfo is None: return 0.0
-    now=(now or datetime.now(IST)).astimezone(IST); published=published.astimezone(IST)
-    if published > now: return 0.0
-    age=(now-published).total_seconds()/3600
-    # Allow prior-session-to-preopen window across weekends/holidays, but never beyond 7 days.
-    if now.time() <= time(9,0) and published.time() >= time(15,30) and published.date() < now.date():
-        days=(now.date()-published.date()).days
-        if days <= 4: return 1.0 if age <= max_age_hours else 0.6
-    if age > max_age_hours: return 0.0
+    """Credit only timestamps in the current pre-open window or previous session's after-close window."""
+    if published is None or published.tzinfo is None:
+        return 0.0
+    now = now or datetime.now(IST)
+    if now.tzinfo is None:
+        return 0.0
+    now = now.astimezone(IST)
+    published = published.astimezone(IST)
+    if published > now or now.time() > time(9, 0):
+        return 0.0
+
+    previous_session = _previous_trading_day(now.date())
+    in_previous_close_window = (
+        published.date() == previous_session and published.time() >= time(15, 30)
+    )
+    in_current_preopen_window = published.date() == now.date() and published.time() <= time(9, 0)
+    if not (in_previous_close_window or in_current_preopen_window):
+        return 0.0
+
+    age = (now - published).total_seconds() / 3600
+    # A weekend/holiday bridge can exceed 24 elapsed hours; it remains valid
+    # only when it is the immediately preceding trading session's post-close news.
+    if age > max_age_hours and not in_previous_close_window:
+        return 0.0
     for limit, weight in RECENCY:
-        if age <= limit: return weight
-    return 0.6
+        if age <= limit:
+            return weight
+    return 0.6 if in_previous_close_window else 0.0
 
 def _norm(text: str) -> str:
     return re.sub(r"[^\w&]+", " ", (text or "").casefold(), flags=re.UNICODE).strip()
@@ -72,7 +99,12 @@ def catalyst_tier(text: str) -> tuple[str, int]:
 
 def score_news(text: str, published_at: Any, now: datetime | None = None) -> dict[str, Any]:
     published=parse_published_at(published_at)
-    weight=freshness_weight(published, now)
+    try:
+        from worker.hot_stocks_config import MAX_NEWS_AGE_HOURS
+        max_age = MAX_NEWS_AGE_HOURS
+    except Exception:
+        max_age = DEFAULT_MAX_AGE_HOURS
+    weight=freshness_weight(published, now, max_age)
     tier, base=catalyst_tier(text)
     score=round(min(30, base*weight)) if weight else 0
     return {"news_score": score, "tier": tier, "direction": classify_direction(text),
