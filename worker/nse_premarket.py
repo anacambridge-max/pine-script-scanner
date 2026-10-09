@@ -88,36 +88,74 @@ def _is_retryable_nse_error(exc: Exception) -> bool:
 
 
 def _fetch_payloads_with_retry() -> tuple[dict[str, Any] | list[Any], dict[str, Any] | list[Any]]:
-    """Fetch both NSE endpoints, rebuilding and warming a fresh session per attempt.
+    """Fetch pre-open and OI independently so one NSE endpoint cannot suppress the other.
 
-    Three total attempts are made. Only 401/403 and timeout failures are retried;
-    other errors are returned to the caller for a graceful skip.
+    A fresh cookie-backed session is warmed for each attempt. Transient 401/403
+    and timeout errors are retried up to three times. If one source remains
+    unavailable but the other works, return the usable source and let the caller
+    persist a partial snapshot instead of discarding all market context.
     """
     last_error: Exception | None = None
+    latest_preopen: dict[str, Any] | list[Any] = {}
+    latest_oi: dict[str, Any] | list[Any] = {}
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            # A fresh Session is created and its cookies warmed via the NSE homepage.
             session = _nse_session()
-            preopen_payload = _get_json(session, PREOPEN_API)
-            oi_payload = _get_json(session, OI_SPURTS_API)
-            return preopen_payload, oi_payload
         except Exception as exc:
             last_error = exc
             retryable = _is_retryable_nse_error(exc)
             if not retryable or attempt >= MAX_ATTEMPTS:
                 logger.warning(
-                    "[NSE PRE-MARKET] graceful skip after attempt %s/%s: %s: %s",
+                    "[NSE PRE-MARKET] session warmup failed after attempt %s/%s: %s: %s",
                     attempt, MAX_ATTEMPTS, type(exc).__name__, exc,
                 )
-                raise
+                break
+            delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.warning("[NSE PRE-MARKET] session warmup retry %s/%s in %ss", attempt, MAX_ATTEMPTS, delay)
+            time_module.sleep(delay)
+            continue
+
+        errors: list[Exception] = []
+        for label, url in (("pre-open", PREOPEN_API), ("OI-spurts", OI_SPURTS_API)):
+            try:
+                payload = _get_json(session, url)
+                if label == "pre-open":
+                    latest_preopen = payload
+                else:
+                    latest_oi = payload
+            except Exception as exc:
+                last_error = exc
+                errors.append(exc)
+                logger.warning(
+                    "[NSE PRE-MARKET] %s source failed on attempt %s/%s: %s: %s",
+                    label, attempt, MAX_ATTEMPTS, type(exc).__name__, exc,
+                )
+
+        # A complete response is ideal; a partial response is still useful
+        # and is preferable to losing both sources because one endpoint failed.
+        if latest_preopen and latest_oi:
+            return latest_preopen, latest_oi
+        if latest_preopen or latest_oi:
+            retryable_errors = [exc for exc in errors if _is_retryable_nse_error(exc)]
+            if not retryable_errors or attempt >= MAX_ATTEMPTS:
+                return latest_preopen, latest_oi
+        elif errors and any(not _is_retryable_nse_error(exc) for exc in errors):
+            # Both sources are unusable for a non-retryable reason.
+            break
+
+        if attempt < MAX_ATTEMPTS:
             delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
             logger.warning(
-                "[NSE PRE-MARKET] retry %s/%s after %s: %s; fresh session + homepage warmup in %ss",
-                attempt, MAX_ATTEMPTS - 1, type(exc).__name__, exc, delay,
+                "[NSE PRE-MARKET] retry %s/%s after endpoint failure; fresh session in %ss",
+                attempt, MAX_ATTEMPTS - 1, delay,
             )
             time_module.sleep(delay)
-    assert last_error is not None
-    raise last_error
+
+    if latest_preopen or latest_oi:
+        return latest_preopen, latest_oi
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("NSE pre-open and OI-spurts endpoints returned no usable payloads")
 
 
 def _rows(payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
