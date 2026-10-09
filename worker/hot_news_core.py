@@ -135,10 +135,13 @@ class SeenNewsStore:
             db.execute("DELETE FROM seen_news WHERE first_seen_date < ?", ((date.today()-timedelta(days=10)).isoformat(),))
     @staticmethod
     def fingerprint(url: str, headline: str) -> str:
-        value=(url.strip().lower() if url else re.sub(r"\W+"," ",headline.casefold()).strip())
+        # Headlines are the best cross-feed dedupe key; URLs often differ only
+        # because publishers append tracking parameters or syndicate the same story.
+        title_key = re.sub(r"\W+", " ", (headline or "").casefold()).strip()
+        value = "headline:" + title_key if title_key else "url:" + (url.strip().split("?", 1)[0].lower() if url else "")
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
     def is_new(self, url: str, headline: str, stock: str, source: str = "") -> bool:
-        key=self.fingerprint(url, headline); today=date.today().isoformat()
+        key=self.fingerprint(url, headline); today=datetime.now(IST).date().isoformat()
         with sqlite3.connect(self.path) as db:
             cur=db.execute("INSERT OR IGNORE INTO seen_news(hash,stock,first_seen_date,source) VALUES(?,?,?,?)",
                            (key, stock.upper(), today, source))
