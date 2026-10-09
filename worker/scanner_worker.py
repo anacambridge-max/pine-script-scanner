@@ -235,7 +235,8 @@ class ScannerWorker:
             analysis_date = session_dates[-1]
             previous_session_date = session_dates[-2] if len(session_dates) > 1 else None
             rows, technical_only = self.morning_hot_scanner.scan_all(
-                histories, self.instrument_map, self.company_map, analysis_date, news_items
+                histories, self.instrument_map, self.company_map, analysis_date, news_items,
+                scan_time=now.to_pydatetime(),
             )
             count = self.supabase.write_morning_hot_stocks(rows)
             from worker.hot_stocks_store import write_technical_watch
