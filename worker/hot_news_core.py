@@ -126,18 +126,44 @@ def catalyst_tier(text: str) -> tuple[str, int]:
     return "GENERAL MENTION", TIER_POINTS["GENERAL MENTION"]
 
 def score_news(text: str, published_at: Any, now: datetime | None = None) -> dict[str, Any]:
-    published=parse_published_at(published_at)
+    published = parse_published_at(published_at)
     try:
-        from worker.hot_stocks_config import MAX_NEWS_AGE_HOURS
+        from worker.hot_stocks_config import (
+            MAX_NEWS_AGE_HOURS, NEWS_SCORE_MAX, NEWS_TIER_POINTS, RECENCY_WEIGHTS,
+        )
         max_age = MAX_NEWS_AGE_HOURS
+        score_max = NEWS_SCORE_MAX
+        recency = RECENCY_WEIGHTS
+        tier_points = NEWS_TIER_POINTS
     except Exception:
         max_age = DEFAULT_MAX_AGE_HOURS
-    weight=freshness_weight(published, now, max_age)
-    tier, base=catalyst_tier(text)
-    score=round(min(30, base*weight)) if weight else 0
-    return {"news_score": score, "tier": tier, "direction": classify_direction(text),
-            "published_ist": published.isoformat() if published else None,
-            "freshness_weight": weight, "reason": tier if score else "Missing/invalid/stale publication time"}
+        score_max = 30
+        recency = RECENCY
+        tier_points = TIER_POINTS
+
+    weight = freshness_weight(published, now, max_age)
+    tier, _ = catalyst_tier(text)
+    base = int(tier_points.get(tier, 7))
+    # Keep recency tiers configurable in one place; freshness_weight remains
+    # responsible for the valid pre-open publication window.
+    if published is not None and weight:
+        effective_now = (now or datetime.now(IST)).astimezone(IST)
+        age_hours = max(0.0, (effective_now - published).total_seconds() / 3600)
+        for limit, configured_weight in recency:
+            if age_hours <= limit:
+                weight = configured_weight
+                break
+        else:
+            weight = 0.6 if weight else 0.0
+    score = round(min(score_max, base * weight)) if weight else 0
+    return {
+        "news_score": score,
+        "tier": tier,
+        "direction": classify_direction(text),
+        "published_ist": published.isoformat() if published else None,
+        "freshness_weight": weight,
+        "reason": tier if score else "Missing/invalid/stale publication time",
+    }
 
 class SeenNewsStore:
     """SQLite dedup ledger. DB is local runtime state and should not be committed."""
