@@ -23,7 +23,7 @@ def test_timeframe_guard():
         pass
 
 def test_result_shape():
-    e = PrimeEngine(PrimeConfig())
+    e = PrimeEngine(PrimeConfig(allow_1m=True))
     result = e.evaluate(make_data(), 1)
     assert result["timeframe"] == 1
     assert "prime_score" in result
@@ -33,6 +33,6 @@ def test_grade_mapping():
     # Validate the score bands used by the Pine implementation indirectly
     # through a controlled monkeypatch of the engine's evaluate output is
     # intentionally avoided; this test protects the public result contract.
-    e = PrimeEngine()
+    e = PrimeEngine(PrimeConfig(allow_1m=True))
     result = e.evaluate(make_data(), 1)
     assert result["grade"] in {"—","WEAK","WATCH","GOOD","STRONG","PRIME A","PRIME A+"}
