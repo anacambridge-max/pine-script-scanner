@@ -31,8 +31,7 @@ export async function GET() {
   const latestEndpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
   latestEndpoint.searchParams.set("select", "trade_date,created_at");
   latestEndpoint.searchParams.set("trade_date", "lte." + target);
-  latestEndpoint.searchParams.set("created_at", "gte." + todayStartUtc);
-  latestEndpoint.searchParams.append("created_at", "lt." + tomorrowStartUtc);
+  latestEndpoint.searchParams.set("and", `(created_at.gte.${todayStartUtc},created_at.lt.${tomorrowStartUtc})`);
   latestEndpoint.searchParams.set("order", "created_at.desc");
   latestEndpoint.searchParams.set("limit", "1");
 
@@ -56,8 +55,7 @@ export async function GET() {
   const latestTechnicalEndpoint = new URL(supabaseUrl + "/rest/v1/morning_technical_watch");
   latestTechnicalEndpoint.searchParams.set("select", "trade_date,created_at");
   latestTechnicalEndpoint.searchParams.set("trade_date", "lte." + target);
-  latestTechnicalEndpoint.searchParams.set("created_at", "gte." + todayStartUtc);
-  latestTechnicalEndpoint.searchParams.append("created_at", "lt." + tomorrowStartUtc);
+  latestTechnicalEndpoint.searchParams.set("and", `(created_at.gte.${todayStartUtc},created_at.lt.${tomorrowStartUtc})`);
   latestTechnicalEndpoint.searchParams.set("order", "created_at.desc");
   latestTechnicalEndpoint.searchParams.set("limit", "1");
   const latestTechnicalResponse = await fetch(latestTechnicalEndpoint, {
