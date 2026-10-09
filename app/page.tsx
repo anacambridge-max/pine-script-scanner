@@ -20,7 +20,7 @@ type PreMarketRow = {
   buy_qty: number | null; sell_qty: number | null; imbalance_qty: number | null;
   oi_change_pct: number | null; oi_volume: number | null;
   preopen_score: number; preopen_bias: string; reasons: string[];
-  source_preopen?: string; source_oi?: string;
+  source_preopen?: string | null; source_oi?: string | null;
 };
 
 type Signal = {
@@ -159,6 +159,27 @@ export default function Home() {
   const sells = signals.filter((s) => s.signal_type.toUpperCase().includes("SELL")).length;
   const avgScore = signals.length ? Math.round(signals.reduce((sum, s) => sum + Number(s.score || 0), 0) / signals.length) : 0;
   const topSector = [...signals].filter(s => s.metadata?.sector).sort((a,b) => Number(b.score||0)-Number(a.score||0))[0]?.metadata?.sector;
+  const commonStockRows = useMemo(() => {
+    const sections = new Map<string, Set<string>>();
+    const add = (symbol: string | null | undefined, section: string) => {
+      const key = String(symbol || "").trim().toUpperCase();
+      if (!key) return;
+      if (!sections.has(key)) sections.set(key, new Set<string>());
+      sections.get(key)!.add(section);
+    };
+    preMarketRows.forEach(row => {
+      if (row.source_preopen) add(row.symbol, "NSE PRE-OPEN");
+      if (row.source_oi) add(row.symbol, "NSE OI SPURTS");
+    });
+    hotStocks.forEach(row => add(row.symbol, "TODAY'S HOT STOCKS"));
+    technicalOnlyRows.forEach(row => add(row.symbol, "TECHNICAL ONLY"));
+    signals.forEach(row => add(row.symbol, row.signal_type.toUpperCase().includes("BUY") ? "BUY CONFIRMED" : row.signal_type.toUpperCase().includes("SELL") ? "SELL CONFIRMED" : "CONFIRMED SIGNALS"));
+    return [...sections.entries()]
+      .filter(([, matches]) => matches.size >= 2)
+      .map(([symbol, matches]) => ({ symbol, sections: [...matches], count: matches.size, allSections: matches.size >= 6 }))
+      .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol));
+  }, [preMarketRows, hotStocks, technicalOnlyRows, signals]);
+
 
   type SelectorRow = {
     signal: Signal;
@@ -408,6 +429,30 @@ export default function Home() {
         <div className="watchlistHead">
           <span>Sources: <a href="https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market" target="_blank" rel="noreferrer">NSE Pre-Open Market</a> · <a href="https://www.nseindia.com/market-data/oi-spurts" target="_blank" rel="noreferrer">NSE OI Spurts</a>. OI change is contextual; it does not determine direction by itself.</span>
         </div>
+      </section>
+
+      <section className="watchlistWrap hotStocksWrap">
+        <div className="watchlistHead">
+          <div>
+            <strong>COMMON STOCKS · CROSS-SECTION MATCH</strong>
+            <span>Stocks appearing in 2 or more dashboard headings: NSE Pre-Open, NSE OI Spurts, Today's Hot Stocks, Technical Only, BUY Confirmed and SELL Confirmed.</span>
+          </div>
+          <div className="watchlistBadge">{commonStockRows.length} common</div>
+        </div>
+        {commonStockRows.length === 0 ? <div className="watchEmpty">No overlapping stocks across the available sections in the latest refresh. NSE source membership is shown only when the source returned that symbol.</div> :
+          <div className="tableScroll" style={{maxHeight: 300}}>
+            <table style={{minWidth: 850}}>
+              <thead><tr><th>SYMBOL</th><th className="right">MATCHING HEADINGS</th><th>SECTIONS</th><th>STATUS</th></tr></thead>
+              <tbody>{commonStockRows.map(row => (
+                <tr key={row.symbol}>
+                  <td className="symbol">{row.symbol}</td>
+                  <td className="right num">{row.count}</td>
+                  <td style={{whiteSpace:"normal",minWidth:350}}>{row.sections.join(" · ")}</td>
+                  <td><span className="setupBadge">{row.allSections ? "ALL 6 HEADINGS" : "CROSS-SECTION COMMON"}</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
       </section>
 
       <section className="tableWrap">
