@@ -13,7 +13,12 @@ NEWS_SCORE_MAX = 30
 NEWS_TIER_POINTS = {"MATERIAL EVENT": 28, "STRONG CATALYST": 21, "GENERAL MENTION": 7}
 TECHNICAL_WEIGHTS = {"volume": 0.25, "body": 0.20, "range": 0.15, "compression": 0.15, "proximity": 0.15, "move": 0.10}
 # Update using the official NSE holiday calendar each year. ISO date strings.
-NSE_HOLIDAYS = set()
+NSE_HOLIDAYS = {
+    "2026-01-15", "2026-01-26", "2026-03-03", "2026-03-26",
+    "2026-03-31", "2026-04-03", "2026-04-14", "2026-05-01",
+    "2026-05-28", "2026-06-26", "2026-09-14", "2026-10-02",
+    "2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25",
+}
 SEEN_NEWS_RETENTION_DAYS = 10
 MIN_AVG_DAILY_VOLUME = 0
 EXCLUDE_RESULTS_DAY = False
