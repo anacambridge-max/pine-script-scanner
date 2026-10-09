@@ -377,16 +377,19 @@ export default function Home() {
         {preMarketRows.length === 0 ? <div className="watchEmpty">No saved NSE pre-market snapshot yet. The worker must be running during 09:00–09:08 IST and the Supabase migration must be applied.</div> :
           <div className="tableScroll" style={{maxHeight: 360}}>
             <table style={{minWidth: 1050}}>
-              <thead><tr><th>SYMBOL</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>PRE-OPEN BIAS</th><th className="right">SCORE</th><th>WHY</th></tr></thead>
+              <thead><tr><th>SYMBOL</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th className="right">OI VOLUME</th><th>PRE-OPEN BIAS</th><th className="right">SCORE</th><th>WHY</th></tr></thead>
               <tbody>{preMarketRows.map((row) => (
                 <tr key={row.id}>
                   <td className="symbol">{row.symbol}</td>
+                  <td className="right num">{fmt(row.previous_close)}</td>
                   <td className="right num">{row.indicative_gap_pct == null ? "—" : fmt(row.indicative_gap_pct) + "%"}</td>
                   <td className="right num">{fmt(row.indicative_price)}</td>
+                  <td className="right num">{row.indicative_tradable_qty == null ? "—" : Math.round(row.indicative_tradable_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.buy_qty == null ? "—" : Math.round(row.buy_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.sell_qty == null ? "—" : Math.round(row.sell_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.imbalance_qty == null ? "—" : Math.round(row.imbalance_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.oi_change_pct == null ? "—" : fmt(row.oi_change_pct) + "%"}</td>
+                  <td className="right num">{row.oi_volume == null ? "—" : Math.round(row.oi_volume).toLocaleString("en-IN")}</td>
                   <td><span className="setupBadge">{row.preopen_bias}</span></td>
                   <td className="right"><span className={row.preopen_score >= 15 ? "score high" : row.preopen_score <= -15 ? "score low" : "score mid"}>{row.preopen_score}</span></td>
                   <td>{(row.reasons ?? []).join(" · ") || "No directional order-book context"}</td>
