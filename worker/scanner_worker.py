@@ -235,7 +235,8 @@ class ScannerWorker:
                 histories, self.instrument_map, self.company_map, analysis_date, news_items
             )
             count = self.supabase.write_morning_hot_stocks(rows)
-            technical_count = self.supabase.write_morning_technical_watch(technical_only)
+            from worker.hot_stocks_store import write_technical_watch
+            technical_count = write_technical_watch(self.supabase, technical_only)
             # Persist local history even when Supabase has no qualified hot names.
             try:
                 from worker.hot_stocks_history import HotStockHistory
