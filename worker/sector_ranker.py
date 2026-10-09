@@ -208,17 +208,26 @@ class SectorRanker:
             ok = False
             for filename in SECTOR_CSV_FILES.get(sector, []):
                 try:
-                    url = f"{NIFTY_BASE}/IndexConstituent/{filename}"
-                    response = self._session.get(url, timeout=12)
-                    response.raise_for_status()
-                    symbols = self._csv_symbols(response.content)
-                    if not symbols:
-                        continue
-                    for symbol in symbols:
-                        mapping.setdefault(symbol, sector)
-                    loaded += 1
-                    ok = True
-                    break
+                    # Nifty Indices has used both URL spellings over time.
+                    # Try the canonical underscore path first, then legacy path;
+                    # a single 404 must not silently drop an entire sector.
+                    for folder in ("Index_Constituent", "IndexConstituent"):
+                        url = f"{NIFTY_BASE}/{folder}/{filename}"
+                        try:
+                            response = self._session.get(url, timeout=12)
+                            response.raise_for_status()
+                            symbols = self._csv_symbols(response.content)
+                            if not symbols:
+                                continue
+                            for symbol in symbols:
+                                mapping.setdefault(symbol, sector)
+                            loaded += 1
+                            ok = True
+                            break
+                        except Exception:
+                            continue
+                    if ok:
+                        break
                 except Exception:
                     continue
             if not ok:
