@@ -34,6 +34,7 @@ export default function Home() {
   type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
   const [hotStocks, setHotStocks] = useState<HotStock[]>([]);
+  const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,10 @@ export default function Home() {
     try {
       const response = await fetch("/api/hot-stocks", { cache: "no-store" });
       const payload = await response.json();
-      if (response.ok) setHotStocks(payload.rows ?? []);
+      if (response.ok) {
+        setHotStocks(payload.rows ?? []);
+        setTechnicalOnlyRows(payload.technical_only_rows ?? []);
+      }
     } catch {
       // Morning hot stocks are supplemental; live confirmed signals remain independent.
     }
@@ -293,6 +297,34 @@ export default function Home() {
                 <div className="hotNews" title={row.news_summary ?? ""}>
                   {row.news_summary ? row.news_summary : "No material Moneycontrol headline matched"}
                 </div>
+                <div className="watchScore">{row.score}</div>
+              </div>
+            ))}
+        </div>
+      </section>
+
+      <section className="watchlistWrap hotStocksWrap">
+        <div className="watchlistHead">
+          <div>
+            <strong>TECHNICAL-ONLY WATCH</strong>
+            <span>Technical score ≥ 55 · no eligible fresh, timestamp-verified stock-specific news · watchlist only, not a BUY/SELL signal</span>
+          </div>
+          <div className="watchlistBadge">{technicalOnlyRows.length} candidates</div>
+        </div>
+        <div className="hotSingle">
+          {technicalOnlyRows.length === 0 ? <div className="watchEmpty">No technical-only candidates for the latest completed session.</div> :
+            technicalOnlyRows.slice(0, 5).map((row, index) => (
+              <div className="hotRow" key={row.id ?? row.symbol}>
+                <div className="watchRank">{index + 1}</div>
+                <div className="watchSymbol"><strong>{row.symbol}</strong><small>{row.company_name ?? row.symbol}</small></div>
+                <div className="hotMetrics">
+                  {row.change_percent != null && <span>D-1 {fmt(row.change_percent)}%</span>}
+                  {row.volume_multiple != null && <span>Vol {fmt(row.volume_multiple)}×</span>}
+                  <span>Tech {row.technical_score}</span>
+                  <span>News {row.news_score}</span>
+                  {row.reasons.slice(0, 2).map((reason) => <span key={reason}>{reason}</span>)}
+                </div>
+                <div className="hotNews" title={row.news_summary ?? ""}>{row.news_summary ?? "No eligible fresh stock-specific headline"}</div>
                 <div className="watchScore">{row.score}</div>
               </div>
             ))}
