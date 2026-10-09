@@ -183,13 +183,25 @@ class MorningHotScanner:
                     if not scored["news_score"]:
                         continue
                     dedupe_headline = item.title if title_match else stock_context
-                    if not seen_store.is_new(item.url, dedupe_headline, symbol, getattr(item, "source", "") or item.url):
+                    if seen_store.has_seen(item.url, dedupe_headline, symbol):
                         continue
-                    candidates.append((scored, item, 1.0 if title_match else 0.5))
+                    candidates.append((scored, item, 1.0 if title_match else 0.5, dedupe_headline))
                 if candidates:
                     candidates.sort(key=lambda x: (x[0]["news_score"] * x[2], x[0]["published_ist"] or ""), reverse=True)
-                    scored, item, match_factor = candidates[0]
-                    news_score = min(30, round(scored["news_score"] * match_factor))
+                    selected = None
+                    for candidate_score, candidate_item, candidate_factor, candidate_headline in candidates:
+                        if seen_store.is_new(
+                            candidate_item.url, candidate_headline, symbol,
+                            getattr(candidate_item, "source", "") or candidate_item.url,
+                        ):
+                            selected = (candidate_score, candidate_item, candidate_factor)
+                            break
+                    if selected is None:
+                        news_score, news_impact, news_titles = 0, "NO FRESH MATCH", []
+                        published_ist, news_source, direction = None, None, "neutral"
+                    else:
+                        scored, item, match_factor = selected
+                        news_score = min(30, round(scored["news_score"] * match_factor))
                     news_impact = scored["direction"].upper() + " · " + scored["tier"]
                     news_titles = [{
                         "title": item.title[:240], "url": item.url, "impact": news_impact,
