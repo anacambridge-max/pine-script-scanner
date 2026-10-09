@@ -223,7 +223,10 @@ class ScannerWorker:
         if minute_key == self._premarket_snapshot_minute:
             return
         from worker.nse_premarket import NSEPreMarketStudy
-        snapshot = NSEPreMarketStudy().collect(now.to_pydatetime())
+        snapshot = NSEPreMarketStudy().collect(
+            now.to_pydatetime(),
+            allowed_symbols=set(self.instrument_map.values()),
+        )
         if snapshot.get("status") != "ok":
             print(f"[NSE PRE-MARKET] {minute_key}: {snapshot.get('status')} {snapshot.get('error', '')}")
             return
