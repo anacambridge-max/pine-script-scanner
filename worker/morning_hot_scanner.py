@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -131,6 +131,7 @@ class MorningHotScanner:
         company_map: dict[str, str],
         analysis_date: date,
         news_items: list[NewsItem],
+        scan_time: datetime | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         import json
         from pathlib import Path
@@ -178,7 +179,7 @@ class MorningHotScanner:
                     # This prevents a catalyst for one company being assigned to every
                     # company mentioned elsewhere in the same roundup.
                     stock_context = extract_stock_specific_text(item.title, item.text, aliases)
-                    scored = score_news(stock_context, item.published_at)
+                    scored = score_news(stock_context, item.published_at, now=scan_time)
                     if not scored["news_score"]:
                         continue
                     if not seen_store.is_new(item.url, item.title, symbol, getattr(item, "source", "") or item.url):
