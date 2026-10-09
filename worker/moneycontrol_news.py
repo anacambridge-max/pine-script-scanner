@@ -174,7 +174,7 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                             description_node = node.find("{http://purl.org/rss/1.0/modules/content/}encoded")
                         description = ""
                         if description_node is not None and description_node.text:
-                            description = re.sub(r"\\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", description_node.text))).strip()
+                            description = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", description_node.text))).strip()
                         if title and published:
                             key = _norm(url or title)
                             if key and key not in seen:
