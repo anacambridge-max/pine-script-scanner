@@ -17,20 +17,42 @@ export async function GET() {
   endpoint.searchParams.set("select", "*");
   endpoint.searchParams.set("trade_date", "eq." + today);
   endpoint.searchParams.set("order", "snapshot_time.desc,preopen_score.desc");
-  endpoint.searchParams.set("limit", "200");
-  const response = await fetch(endpoint, { headers, cache: "no-store" });
-  const body = await response.text();
-  if (!response.ok) {
-    return NextResponse.json(
-      { error: "NSE pre-market study table is unavailable. Apply the nse_premarket_study migration first.", details: body },
-      { status: response.status }
-    );
+  // One minute may contain the whole F&O universe; the full 09:00–09:08
+  // study can exceed PostgREST's default page size. Page through today's rows
+  // so the API can report how much of the requested window was actually saved.
+  const allRows: Array<Record<string, unknown>> = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 5000; offset += pageSize) {
+    const pageUrl = new URL(endpoint.toString());
+    pageUrl.searchParams.set("limit", String(pageSize));
+    const response = await fetch(pageUrl, {
+      headers: { ...headers, Range: `${offset}-${offset + pageSize - 1}` },
+      cache: "no-store",
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: "NSE pre-market study table is unavailable. Apply the nse_premarket_study migration first.", details: body },
+        { status: response.status }
+      );
+    }
+    const page = JSON.parse(body) as Array<Record<string, unknown>>;
+    allRows.push(...page);
+    if (page.length < pageSize) break;
   }
-  const allRows = JSON.parse(body) as Array<Record<string, unknown>>;
   const latestSnapshot = allRows[0]?.snapshot_time;
   const rows = latestSnapshot ? allRows.filter(row => row.snapshot_time === latestSnapshot) : [];
+  const snapshotTimes = [...new Set(allRows.map(row => String(row.snapshot_time ?? "")).filter(Boolean))].sort();
+  const snapshotCount = snapshotTimes.length;
   return NextResponse.json(
-    { snapshot_time: latestSnapshot ?? null, rows },
+    {
+      snapshot_time: latestSnapshot ?? null,
+      rows,
+      snapshot_count: snapshotCount,
+      window_start: snapshotTimes[0] ?? null,
+      window_end: snapshotTimes[snapshotTimes.length - 1] ?? null,
+      study_complete: snapshotCount >= 9,
+    },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }
