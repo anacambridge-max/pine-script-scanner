@@ -83,7 +83,11 @@ def _is_retryable_nse_error(exc: Exception) -> bool:
         return True
     if isinstance(exc, requests.HTTPError):
         status = getattr(getattr(exc, "response", None), "status_code", None)
-        return status in {401, 403}
+        # NSE rate-limits and transient gateway failures are common during the
+        # opening auction; retry those just like stale-cookie 401/403 responses.
+        return status in {401, 403, 408, 425, 429, 500, 502, 503, 504}
+    if isinstance(exc, requests.ConnectionError):
+        return True
     return False
 
 
