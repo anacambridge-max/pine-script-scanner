@@ -202,11 +202,15 @@ class ScannerWorker:
             trade_date = now.date().isoformat()
             if trade_date in self._morning_hot_done:
                 return
-            from worker.hot_stocks_config import SCAN_CUTOFF
+            from worker.hot_stocks_config import SCAN_CUTOFF, NSE_HOLIDAYS
             if now.time().replace(tzinfo=None) >= SCAN_CUTOFF:
                 return
 
             today = now.date()
+            if today.weekday() >= 5 or today.isoformat() in NSE_HOLIDAYS:
+                self._morning_hot_done.add(trade_date)
+                print(f"[MORNING] Skipping non-trading day {trade_date}")
+                return
 
             # Capture the Moneycontrol snapshot immediately, while we are still
             # inside the pre-open window. This prevents later 09:15+ headlines
