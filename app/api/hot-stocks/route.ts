@@ -43,14 +43,36 @@ export async function GET() {
   }
 
   const latestRows = JSON.parse(latestBody);
-  if (!latestRows.length) {
+
+  // Technical-only candidates can exist on a date with zero Hot Stocks. Choose
+  // the newest run across both tables so the dashboard never falls back to an
+  // older hot-stock date merely because today's news gate rejected everything.
+  const latestTechnicalEndpoint = new URL(supabaseUrl + "/rest/v1/morning_technical_watch");
+  latestTechnicalEndpoint.searchParams.set("select", "trade_date,created_at");
+  latestTechnicalEndpoint.searchParams.set("trade_date", "lte." + target);
+  latestTechnicalEndpoint.searchParams.set("order", "created_at.desc");
+  latestTechnicalEndpoint.searchParams.set("limit", "1");
+  const latestTechnicalResponse = await fetch(latestTechnicalEndpoint, {
+    headers: { apikey: serviceKey, Authorization: "Bearer " + serviceKey },
+    cache: "no-store",
+  });
+  let latestTechnicalRows: Array<{trade_date: string; created_at: string}> = [];
+  if (latestTechnicalResponse.ok) {
+    latestTechnicalRows = await latestTechnicalResponse.json();
+  } else {
+    console.warn("Technical-only latest-date query failed:", await latestTechnicalResponse.text());
+  }
+
+  const latestCandidate = [...latestRows, ...latestTechnicalRows]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  if (!latestCandidate) {
     return NextResponse.json(
-      { trade_date: null, rows: [] },
+      { trade_date: null, rows: [], technical_only_rows: [] },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 
-  const analysisDate = latestRows[0].trade_date;
+  const analysisDate = latestCandidate.trade_date;
   const endpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
   endpoint.searchParams.set("select", "*");
   endpoint.searchParams.set("trade_date", "eq." + analysisDate);
