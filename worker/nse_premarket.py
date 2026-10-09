@@ -132,11 +132,18 @@ def _flatten_preopen(row: dict[str, Any]) -> dict[str, Any]:
 
 def _flatten_oi(row: dict[str, Any]) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    for key, value in row.items():
-        if isinstance(value, dict):
-            merged.update(value)
-        elif not isinstance(value, list):
-            merged[key] = value
+
+    def visit(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            if isinstance(child, dict):
+                visit(child)
+            elif not isinstance(child, list):
+                if key not in merged or merged[key] in (None, "", "-", "--"):
+                    merged[key] = child
+
+    visit(row)
     symbol = _pick(merged, "symbol", "underlying", "underlyingSymbol", "identifier")
     # Never label absolute OI-contract change as a percentage. Use only fields
     # whose names explicitly denote percent change; missing percentage stays null.
