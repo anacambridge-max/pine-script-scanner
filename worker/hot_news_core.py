@@ -86,6 +86,19 @@ def alias_matches(text: str, aliases: list[str]) -> bool:
         if re.search(pattern, hay, flags=re.UNICODE): return True
     return False
 
+def extract_stock_specific_text(title: str, body: str, aliases: list[str]) -> str:
+    """Keep only roundup sentences/bullets that mention this stock; avoid cross-stock catalyst leakage."""
+    chunks = re.split(r"(?:\\r?\\n|(?<=[.!?])\\s+|\\s+[•▪●]\s+|\\s+[-–—]\s+)", body or "")
+    matched = [chunk.strip(" \\t•▪●-–—") for chunk in chunks if chunk.strip() and alias_matches(chunk, aliases)]
+    title_match = alias_matches(title or "", aliases)
+    parts = [title.strip()] if title_match and title else []
+    parts.extend(matched)
+    if not parts:
+        return title or ""
+    # Preserve order and avoid duplicating the same title/summary text.
+    return " ".join(dict.fromkeys(part for part in parts if part))[:5000]
+
+
 def classify_direction(text: str) -> str:
     t=(text or "").casefold()
     pos=any(k in t for k in POSITIVE); neg=any(k in t for k in NEGATIVE)
@@ -134,7 +147,9 @@ class SeenNewsStore:
 def qualifies(tech_score: float, news_score: float, min_tech_score: float = 55) -> bool:
     return tech_score >= min_tech_score and news_score > 0
 
-def load_aliases(path: str | Path = "worker/stock_aliases.json") -> dict[str, list[str]]:
+def load_aliases(path: str | Path | None = None) -> dict[str, list[str]]:
+    if path is None:
+        path = Path(__file__).with_name("stock_aliases.json")
     with open(path, encoding="utf-8") as f:
         data=json.load(f)
     return {str(k): list(v) for k,v in data.items() if isinstance(v, list)}
