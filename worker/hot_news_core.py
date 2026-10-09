@@ -174,7 +174,12 @@ class SeenNewsStore:
             db.execute("""CREATE TABLE IF NOT EXISTS seen_news (
                 hash TEXT NOT NULL, stock TEXT NOT NULL, first_seen_date TEXT NOT NULL,
                 source TEXT NOT NULL, PRIMARY KEY(hash, stock))""")
-            db.execute("DELETE FROM seen_news WHERE first_seen_date < ?", ((datetime.now(IST).date()-timedelta(days=10)).isoformat(),))
+            try:
+                from worker.hot_stocks_config import SEEN_NEWS_RETENTION_DAYS
+            except Exception:
+                SEEN_NEWS_RETENTION_DAYS = 10
+            cutoff = (datetime.now(IST).date() - timedelta(days=SEEN_NEWS_RETENTION_DAYS)).isoformat()
+            db.execute("DELETE FROM seen_news WHERE first_seen_date < ?", (cutoff,))
     @staticmethod
     def fingerprint(url: str, headline: str) -> str:
         # Headlines are the best cross-feed dedupe key; URLs often differ only
