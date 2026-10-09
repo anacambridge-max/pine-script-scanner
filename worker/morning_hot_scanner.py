@@ -140,6 +140,7 @@ class MorningHotScanner:
         from worker.hot_stocks_config import (
             MIN_TECH_SCORE, EXCLUDE_RESULTS_DAY, EXCLUDE_FO_BAN,
             EXCLUDE_LOW_LIQUIDITY, MIN_AVG_DAILY_VOLUME,
+            TITLE_MATCH_FACTOR, BODY_MATCH_FACTOR,
         )
         aliases_map = load_aliases()
         exclusions_path = Path(__file__).with_name("hot_stock_exclusions.json")
@@ -186,7 +187,8 @@ class MorningHotScanner:
                     dedupe_headline = item.title if title_match else stock_context
                     if seen_store.has_seen(item.url, dedupe_headline, symbol):
                         continue
-                    candidates.append((scored, item, 1.0 if title_match else 0.5, dedupe_headline))
+                    match_factor = TITLE_MATCH_FACTOR if title_match else BODY_MATCH_FACTOR
+                    candidates.append((scored, item, match_factor, dedupe_headline))
                 if candidates:
                     candidates.sort(key=lambda x: (x[0]["news_score"] * x[2], x[0]["published_ist"] or ""), reverse=True)
                     selected = None
