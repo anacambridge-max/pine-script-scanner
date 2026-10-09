@@ -6,14 +6,20 @@ This module is deliberately separate from the confirmed BUY/SELL engine.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
+import time as time_module
 from datetime import datetime, time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
+
+logger = logging.getLogger(__name__)
+MAX_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 1
 
 IST = ZoneInfo("Asia/Kolkata")
 WINDOW_START = time(9, 0)
@@ -70,6 +76,48 @@ def _get_json(session: requests.Session, url: str) -> dict[str, Any] | list[Any]
     if not isinstance(payload, (dict, list)):
         raise ValueError(f"Unexpected NSE payload at {url}")
     return payload
+
+
+def _is_retryable_nse_error(exc: Exception) -> bool:
+    if isinstance(exc, requests.Timeout):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return status in {401, 403}
+    return False
+
+
+def _fetch_payloads_with_retry() -> tuple[dict[str, Any] | list[Any], dict[str, Any] | list[Any]]:
+    """Fetch both NSE endpoints, rebuilding and warming a fresh session per attempt.
+
+    Three total attempts are made. Only 401/403 and timeout failures are retried;
+    other errors are returned to the caller for a graceful skip.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            # A fresh Session is created and its cookies warmed via the NSE homepage.
+            session = _nse_session()
+            preopen_payload = _get_json(session, PREOPEN_API)
+            oi_payload = _get_json(session, OI_SPURTS_API)
+            return preopen_payload, oi_payload
+        except Exception as exc:
+            last_error = exc
+            retryable = _is_retryable_nse_error(exc)
+            if not retryable or attempt >= MAX_ATTEMPTS:
+                logger.warning(
+                    "[NSE PRE-MARKET] graceful skip after attempt %s/%s: %s: %s",
+                    attempt, MAX_ATTEMPTS, type(exc).__name__, exc,
+                )
+                raise
+            delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "[NSE PRE-MARKET] retry %s/%s after %s: %s; fresh session + homepage warmup in %ss",
+                attempt, MAX_ATTEMPTS - 1, type(exc).__name__, exc, delay,
+            )
+            time_module.sleep(delay)
+    assert last_error is not None
+    raise last_error
 
 
 def _rows(payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
@@ -211,9 +259,7 @@ class NSEPreMarketStudy:
                 or not (WINDOW_START <= now.time().replace(tzinfo=None) <= WINDOW_END)):
             return {"status": "outside_window", "snapshot_time": now.isoformat(), "rows": []}
         try:
-            session = _nse_session()
-            preopen_payload = _get_json(session, PREOPEN_API)
-            oi_payload = _get_json(session, OI_SPURTS_API)
+            preopen_payload, oi_payload = _fetch_payloads_with_retry()
         except Exception as exc:
             # A failed exchange fetch must remain retryable in the next minute.
             return {"status": "unavailable", "snapshot_time": now.isoformat(),
