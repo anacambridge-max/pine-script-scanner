@@ -116,3 +116,60 @@ def test_current_day_news_after_0900_is_rejected_even_during_late_scan():
     now = datetime(2026, 10, 8, 9, 8, tzinfo=IST)
     published = datetime(2026, 10, 8, 9, 1, tzinfo=IST)
     assert freshness_weight(published, now) == 0.0
+
+
+# NSE pre-market source parsing and score checks
+def test_nse_preopen_flatten_derives_gap_and_imbalance():
+    from worker.nse_premarket import _flatten_preopen
+    flat = _flatten_preopen({
+        "metadata": {"symbol": "HAL", "previousClose": 100, "iep": 102},
+        "detail": {"totalBuyQuantity": 700, "totalSellQuantity": 300, "finalQuantity": 1000},
+    })
+    assert flat["symbol"] == "HAL"
+    assert flat["indicative_gap_pct"] == 2.0
+    assert flat["imbalance_qty"] == 400
+    assert flat["indicative_tradable_qty"] == 1000
+
+
+def test_nse_oi_flatten_uses_oi_change_not_price_change():
+    from worker.nse_premarket import _flatten_oi
+    flat = _flatten_oi({"symbol": "BEL", "pChange": 3.2, "pchangeInOI": 12.5, "volume": 1000})
+    assert flat["symbol"] == "BEL"
+    assert flat["oi_change_pct"] == 12.5
+    assert flat["oi_volume"] == 1000
+
+
+def test_nse_oi_change_can_be_derived_from_oi_values():
+    from worker.nse_premarket import _flatten_oi
+    flat = _flatten_oi({"symbol": "HAL", "currentOI": 1100, "previousOI": 1000})
+    assert flat["oi_change_pct"] == 10.0
+
+
+def test_nse_preopen_score_direction_is_based_on_gap_and_order_imbalance():
+    from worker.nse_premarket import _score_preopen
+    score, bias, reasons = _score_preopen({
+        "indicative_gap_pct": 2.5, "buy_qty": 800, "sell_qty": 200,
+        "indicative_tradable_qty": 1000, "imbalance_qty": 600,
+    })
+    assert score == 50
+    assert bias == "BULLISH BIAS"
+    assert any("buy quantity" in reason for reason in reasons)
+
+
+def test_nse_collector_never_fetches_outside_0900_to_0908(tmp_path, monkeypatch):
+    from worker.nse_premarket import NSEPreMarketStudy, IST
+    import worker.nse_premarket as module
+
+    def fail_if_called():
+        raise AssertionError("network must not be called outside the requested window")
+
+    monkeypatch.setattr(module, "_fetch_payloads_with_retry", fail_if_called)
+    study = NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    assert study.collect(datetime(2026, 10, 9, 8, 59, tzinfo=IST))["status"] == "outside_window"
+    assert study.collect(datetime(2026, 10, 9, 9, 9, tzinfo=IST))["status"] == "outside_window"
+    assert study.collect(datetime(2026, 10, 10, 9, 3, tzinfo=IST))["status"] == "outside_window"
+
+
+def test_nse_collector_rejects_naive_datetime(tmp_path):
+    from worker.nse_premarket import NSEPreMarketStudy
+    assert NSEPreMarketStudy(tmp_path / "nse.sqlite3").collect(datetime(2026, 10, 9, 9, 3))["status"] == "invalid_time"
