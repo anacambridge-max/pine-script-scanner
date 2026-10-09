@@ -217,7 +217,16 @@ class ScannerWorker:
 
     def _run_nse_premarket_study(self) -> None:
         now = pd.Timestamp.now(tz="Asia/Kolkata")
-        if now.weekday() >= 5 or not (now.hour == 9 and 0 <= now.minute <= 8):
+        # This study is intentionally limited to NSE trading days and the
+        # requested 09:00–09:08 IST order-collection window. The collector
+        # repeats the guard too, so direct calls cannot accidentally fetch
+        # live NSE data outside the study window.
+        from worker.hot_stocks_config import NSE_HOLIDAYS
+        if (
+            now.weekday() >= 5
+            or now.date().isoformat() in NSE_HOLIDAYS
+            or not (now.hour == 9 and 0 <= now.minute <= 8)
+        ):
             return
         minute_key = now.strftime("%Y-%m-%d %H:%M")
         if minute_key == self._premarket_snapshot_minute:
