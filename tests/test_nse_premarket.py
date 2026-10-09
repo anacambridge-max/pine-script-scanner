@@ -140,3 +140,21 @@ def test_preopen_parser_reads_nested_preopen_market_object():
     assert parsed["buy_qty"] == 8000
     assert parsed["sell_qty"] == 2000
     assert parsed["indicative_gap_pct"] == 2.0
+
+def test_collect_can_restrict_rows_to_fno_universe(tmp_path, monkeypatch):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    monkeypatch.setattr(nse_premarket, "_nse_session", lambda: object())
+    payload = {"data": [
+        {"metadata": {"symbol": "HAL", "previousClose": 100, "iep": 102}},
+        {"metadata": {"symbol": "NONFNO", "previousClose": 100, "iep": 103}},
+    ]}
+    monkeypatch.setattr(
+        nse_premarket, "_get_json",
+        lambda session, url: payload if "pre-open" in url else {"data": []},
+    )
+    result = study.collect(
+        datetime(2026, 10, 8, 9, 3, tzinfo=IST),
+        allowed_symbols={"HAL"},
+    )
+    assert result["status"] == "ok"
+    assert [row["symbol"] for row in result["rows"]] == ["HAL"]
