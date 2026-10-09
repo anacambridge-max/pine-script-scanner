@@ -140,6 +140,14 @@ class SeenNewsStore:
         title_key = re.sub(r"\W+", " ", (headline or "").casefold()).strip()
         value = "headline:" + title_key if title_key else "url:" + (url.strip().split("?", 1)[0].lower() if url else "")
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    def has_seen(self, url: str, headline: str, stock: str) -> bool:
+        key = self.fingerprint(url, headline)
+        with sqlite3.connect(self.path) as db:
+            return db.execute(
+                "SELECT 1 FROM seen_news WHERE hash=? AND stock=? LIMIT 1",
+                (key, stock.upper()),
+            ).fetchone() is not None
+
     def is_new(self, url: str, headline: str, stock: str, source: str = "") -> bool:
         key=self.fingerprint(url, headline); today=datetime.now(IST).date().isoformat()
         with sqlite3.connect(self.path) as db:
