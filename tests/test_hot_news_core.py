@@ -85,3 +85,19 @@ def test_direction_classification_supports_hindi_without_changing_tier():
     text = "मिला ऑर्डर, बड़ा ऑर्डर और जुर्माना"
     assert classify_direction(text) == "mixed"
     assert catalyst_tier(text)[0] == "MATERIAL EVENT"
+
+
+def test_configured_news_tier_scores_and_recency():
+    from worker.hot_news_core import score_news
+    now = datetime(2026, 10, 8, 8, 30, tzinfo=IST)
+    fresh = score_news("HAL wins a large order", "2026-10-08T07:30:00+05:30", now)
+    older = score_news("HAL wins a large order", "2026-10-08T01:30:00+05:30", now)
+    assert fresh["news_score"] == 28
+    assert older["news_score"] == 22
+    assert fresh["direction"] == "positive"
+
+
+def test_news_published_during_market_hours_is_not_preopen_news():
+    now = datetime(2026, 10, 8, 8, 30, tzinfo=IST)
+    published = datetime(2026, 10, 7, 12, 0, tzinfo=IST)
+    assert freshness_weight(published, now) == 0.0
