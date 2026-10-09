@@ -19,6 +19,10 @@ export async function GET() {
   }).formatToParts(now);
   const part = (type: string) => parts.find(p => p.type === type)?.value || "00";
   const target = `${part("year")}-${part("month")}-${part("day")}`;
+  // Only expose a scan created today in IST. If the worker has not completed
+  // today's scan, do not keep presenting yesterday's candidates as today's list.
+  const todayStartUtc = new Date(`${target}T00:00:00+05:30`).toISOString();
+  const tomorrowStartUtc = new Date(Date.parse(`${target}T00:00:00+05:30`) + 24 * 60 * 60 * 1000).toISOString();
 
   // The morning scan stores the completed session date (yesterday) in
   // trade_date. Multiple runs on the same morning can therefore have the
@@ -27,6 +31,8 @@ export async function GET() {
   const latestEndpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
   latestEndpoint.searchParams.set("select", "trade_date,created_at");
   latestEndpoint.searchParams.set("trade_date", "lte." + target);
+  latestEndpoint.searchParams.set("created_at", "gte." + todayStartUtc);
+  latestEndpoint.searchParams.append("created_at", "lt." + tomorrowStartUtc);
   latestEndpoint.searchParams.set("order", "created_at.desc");
   latestEndpoint.searchParams.set("limit", "1");
 
@@ -50,6 +56,8 @@ export async function GET() {
   const latestTechnicalEndpoint = new URL(supabaseUrl + "/rest/v1/morning_technical_watch");
   latestTechnicalEndpoint.searchParams.set("select", "trade_date,created_at");
   latestTechnicalEndpoint.searchParams.set("trade_date", "lte." + target);
+  latestTechnicalEndpoint.searchParams.set("created_at", "gte." + todayStartUtc);
+  latestTechnicalEndpoint.searchParams.append("created_at", "lt." + tomorrowStartUtc);
   latestTechnicalEndpoint.searchParams.set("order", "created_at.desc");
   latestTechnicalEndpoint.searchParams.set("limit", "1");
   const latestTechnicalResponse = await fetch(latestTechnicalEndpoint, {
@@ -76,6 +84,9 @@ export async function GET() {
   const endpoint = new URL(supabaseUrl + "/rest/v1/morning_hot_stocks");
   endpoint.searchParams.set("select", "*");
   endpoint.searchParams.set("trade_date", "eq." + analysisDate);
+  endpoint.searchParams.set("technical_score", "gte.55");
+  endpoint.searchParams.set("news_score", "gt.0");
+  endpoint.searchParams.set("published_ist", "not.is.null");
   endpoint.searchParams.set("order", "score.desc");
   endpoint.searchParams.set("limit", "10");
 
