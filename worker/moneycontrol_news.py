@@ -167,12 +167,21 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                         if date_node is None:
                             date_node = node.find("{http://www.w3.org/2005/Atom}updated")
                         published = (date_node.text or "").strip() if date_node is not None else ""
+                        description_node = node.find("description")
+                        if description_node is None:
+                            description_node = node.find("{http://www.w3.org/2005/Atom}summary")
+                        if description_node is None:
+                            description_node = node.find("{http://purl.org/rss/1.0/modules/content/}encoded")
+                        description = ""
+                        if description_node is not None and description_node.text:
+                            description = re.sub(r"\\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", description_node.text))).strip()
                         if title and published:
-                            key = _norm(title)
+                            key = _norm(url or title)
                             if key and key not in seen:
                                 seen.add(key)
-                                items.append(NewsItem(title=title[:300], url=url or source, text=title,
-                                    impact=_impact(title), published_at=published, source=source))
+                                story_text = (title + " " + description).strip()
+                                items.append(NewsItem(title=title[:300], url=url or source, text=story_text[:5000],
+                                    impact=_impact(story_text), published_at=published, source=source))
                                 if len(items) >= max_items:
                                     return items
                     continue
