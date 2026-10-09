@@ -111,6 +111,7 @@ class MorningHotScanner:
 
         return {
             "technical_score": technical,
+            "avg_daily_volume": avg20_volume,
             "close": close,
             "change_percent": change_pct,
             "volume_multiple": volume_multiple,
@@ -131,9 +132,22 @@ class MorningHotScanner:
         analysis_date: date,
         news_items: list[NewsItem],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        import json
+        from pathlib import Path
         from worker.hot_news_core import load_aliases, alias_matches, extract_stock_specific_text, score_news, qualifies, SeenNewsStore
-        from worker.hot_stocks_config import MIN_TECH_SCORE
+        from worker.hot_stocks_config import (
+            MIN_TECH_SCORE, EXCLUDE_RESULTS_DAY, EXCLUDE_FO_BAN,
+            EXCLUDE_LOW_LIQUIDITY, MIN_AVG_DAILY_VOLUME,
+        )
         aliases_map = load_aliases()
+        exclusions_path = Path(__file__).with_name("hot_stock_exclusions.json")
+        try:
+            exclusions = json.loads(exclusions_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            exclusions = {"results_dates": {}, "fo_ban_dates": {}}
+        date_key = analysis_date.isoformat()
+        results_today = set(exclusions.get("results_dates", {}).get(date_key, []))
+        fo_ban_today = set(exclusions.get("fo_ban_dates", {}).get(date_key, []))
         seen_store = SeenNewsStore()
         hot_rows: list[dict[str, Any]] = []
         technical_rows: list[dict[str, Any]] = []
@@ -144,6 +158,15 @@ class MorningHotScanner:
                 tech = self._technical(frame, analysis_date)
                 if not tech:
                     continue
+                # Optional exclusion lists are deliberately opt-in and must be
+                # maintained from official exchange/company calendars.
+                if EXCLUDE_RESULTS_DAY and symbol in results_today:
+                    continue
+                if EXCLUDE_FO_BAN and symbol in fo_ban_today:
+                    continue
+                if EXCLUDE_LOW_LIQUIDITY and MIN_AVG_DAILY_VOLUME > 0:
+                    if tech.get("avg_daily_volume", 0) < MIN_AVG_DAILY_VOLUME:
+                        continue
                 candidates = []
                 for item in news_items:
                     aliases = list(dict.fromkeys([symbol, company] + aliases_map.get(symbol, [])))
