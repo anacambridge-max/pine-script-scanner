@@ -66,3 +66,9 @@ def test_roundup_context_keeps_only_matching_stock_sentence():
 def test_atom_timestamp_parses_and_normalizes():
     dt = parse_published_at("2026-10-08T03:00:00Z")
     assert dt is not None and dt.hour == 8 and dt.minute == 30
+
+
+def test_seen_news_deduplicates_same_headline_across_different_feeds(tmp_path):
+    store = SeenNewsStore(tmp_path / "seen.sqlite3")
+    assert store.is_new("https://feed-a.example/story?id=1", "HAL wins major defence order", "HAL", "feed-a")
+    assert not store.is_new("https://feed-b.example/another-url", "HAL wins major defence order", "HAL", "feed-b")
