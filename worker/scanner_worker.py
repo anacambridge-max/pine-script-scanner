@@ -116,6 +116,19 @@ class ScannerWorker:
                     return
                 time.sleep(1)
 
+    def _morning_hot_loop(self) -> None:
+        # Retry during pre-open even when the worker starts before 09:00.
+        # A one-shot startup call can miss the valid news window entirely.
+        while self.running:
+            try:
+                self._run_morning_hot_scan()
+            except Exception as exc:
+                print(f"[MORNING LOOP WARNING] {exc}")
+            for _ in range(30):
+                if not self.running:
+                    return
+                time.sleep(1)
+
     def _on_bar(self, instrument_key: str, one_minute: pd.DataFrame) -> None:
         one_minute = one_minute.tail(6000)
         symbol = self.instrument_map.get(instrument_key, instrument_key)
@@ -490,10 +503,13 @@ class ScannerWorker:
             f"Prime live scanner starting with {len(self.instrument_map)} "
             "F&O stock underlyings — 3m PDH/PDL + 2x volume mode..."
         )
-        # Pre-open scan runs BEFORE the heavy minute-history bootstrap.
-        # It uses compact daily candles + the Moneycontrol snapshot and never
-        # creates BUY/SELL signals.
-        self._run_morning_hot_scan()
+        # Retry the morning scan independently so startup before 09:00 does
+        # not miss the fresh-news window or block the NSE snapshot collector.
+        threading.Thread(
+            target=self._morning_hot_loop,
+            name="morning-hot-scan",
+            daemon=True,
+        ).start()
 
         # Live 3M PDH/PDL + volume logic only needs the previous trading
         # session and the current session. Do not block the opening scan with
