@@ -74,3 +74,24 @@ def test_collection_only_runs_inside_0900_to_0908(tmp_path, monkeypatch):
     assert study.collect(before)["status"] == "outside_window"
     assert study.collect(after)["status"] == "outside_window"
     assert study.collect(weekend)["status"] == "outside_window"
+
+
+def test_empty_preopen_payload_is_not_reported_as_success(tmp_path, monkeypatch):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    class FakeSession:
+        pass
+    monkeypatch.setattr(nse_premarket, "_nse_session", lambda: FakeSession())
+    monkeypatch.setattr(nse_premarket, "_get_json", lambda session, url: {"data": []})
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+    assert result["status"] == "empty"
+    assert result["rows"] == []
+
+
+def test_nse_network_failure_is_retryable_not_success(tmp_path, monkeypatch):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    def fail():
+        raise RuntimeError("temporarily blocked")
+    monkeypatch.setattr(nse_premarket, "_nse_session", fail)
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+    assert result["status"] == "unavailable"
+    assert "temporarily blocked" in result["error"]
