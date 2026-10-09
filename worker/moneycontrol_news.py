@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
@@ -89,6 +90,7 @@ class NewsItem:
     text: str
     impact: str
     published_at: str | None = None
+    source: str | None = None
 
 
 def _norm(value: str) -> str:
@@ -138,6 +140,30 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
     for source in MONEYCONTROL_SOURCES + OTHER_MARKET_SOURCES:
         try:
             raw_html = _fetch(source)
+            # Parse RSS/Atom timestamps before falling back to HTML link scraping.
+            if "rss" in source.lower() or raw_html.lstrip().startswith("<?xml"):
+                try:
+                    root = ET.fromstring(raw_html)
+                    for node in root.findall(".//item") + root.findall(".//{http://www.w3.org/2005/Atom}entry"):
+                        title_node = node.find("title") or node.find("{http://www.w3.org/2005/Atom}title")
+                        title = (title_node.text or "").strip() if title_node is not None else ""
+                        link_node = node.find("link")
+                        url = (link_node.text or "").strip() if link_node is not None and link_node.text else ""
+                        if not url and link_node is not None:
+                            url = link_node.attrib.get("href", "")
+                        date_node = node.find("pubDate") or node.find("published") or node.find("updated")
+                        published = (date_node.text or "").strip() if date_node is not None else ""
+                        if title and published:
+                            key = _norm(title)
+                            if key and key not in seen:
+                                seen.add(key)
+                                items.append(NewsItem(title=title[:300], url=url or source, text=title,
+                                    impact=_impact(title), published_at=published, source=source))
+                                if len(items) >= max_items:
+                                    return items
+                    continue
+                except ET.ParseError:
+                    pass
             parser = _LinkParser()
             parser.feed(raw_html)
 
@@ -159,7 +185,7 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                 if key and key not in seen and len(key) >= 12:
                     seen.add(key)
                     items.append(
-                        NewsItem(title=title[:300], url=source, text=title, impact=_impact(title))
+                        NewsItem(title=title[:300], url=source, text=title, impact=_impact(title), published_at=None, source=source)
                     )
                     if len(items) >= max_items:
                         return items
@@ -176,7 +202,7 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                 if not any(token in url for token in ("/news/", "/features/", "/market", "/markets", "news.google.com/rss/")):
                     continue
                 impact = _impact(title)
-                items.append(NewsItem(title=title, url=url, text=title, impact=impact))
+                items.append(NewsItem(title=title, url=url, text=title, impact=impact, published_at=None, source=source))
                 if len(items) >= max_items:
                     return items
         except Exception as exc:
