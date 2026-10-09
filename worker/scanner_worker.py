@@ -363,11 +363,11 @@ class ScannerWorker:
                 )
             except Exception as history_exc:
                 print(f"[MORNING HISTORY WARNING] {history_exc}")
-            # Reaching this point means both watchlist writes and the local
-            # history step completed. An empty result is still a valid scan:
-            # do not refetch news and daily candles every 30 seconds until 09:15.
-            # Failures before this point are caught by the outer handler and remain retryable.
-            self._morning_hot_done.add(trade_date)
+            # Reaching this point means the persistence steps completed. A
+            # non-empty news fetch with zero qualifying candidates is a valid
+            # empty scan; a completely empty feed response stays retryable.
+            if count > 0 or technical_count > 0 or len(news_items) > 0:
+                self._morning_hot_done.add(trade_date)
             print(
                 f"[MORNING] {today.isoformat()}: hot={count}, technical-only={technical_count}; "
                 f"completed session={analysis_date.isoformat()}, news items={len(news_items)}"
