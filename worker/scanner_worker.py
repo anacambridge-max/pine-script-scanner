@@ -209,8 +209,9 @@ class ScannerWorker:
 
     @staticmethod
     def _next_business_day(analysis_date: pd.Timestamp) -> str:
+        from worker.hot_stocks_config import NSE_HOLIDAYS
         target = analysis_date.date() + pd.Timedelta(days=1)
-        while target.weekday() >= 5:
+        while target.weekday() >= 5 or target.isoformat() in NSE_HOLIDAYS:
             target += pd.Timedelta(days=1)
         return target.isoformat()
 
