@@ -173,7 +173,7 @@ export default function Home() {
     });
     hotStocks.forEach(row => add(row.symbol, "TODAY'S HOT STOCKS"));
     technicalOnlyRows.forEach(row => add(row.symbol, "TECHNICAL ONLY"));
-    signals.forEach(row => add(row.symbol, row.signal_type.toUpperCase().includes("BUY") ? "BUY CONFIRMED" : row.signal_type.toUpperCase().includes("SELL") ? "SELL CONFIRMED" : "CONFIRMED SIGNALS"));
+    signals.filter(row => row.signal_state === "CONFIRMED").forEach(row => add(row.symbol, row.signal_type.toUpperCase().includes("BUY") ? "BUY CONFIRMED" : row.signal_type.toUpperCase().includes("SELL") ? "SELL CONFIRMED" : "CONFIRMED SIGNALS"));
     return [...sections.entries()]
       .filter(([, matches]) => matches.size >= 2)
       .map(([symbol, matches]) => ({ symbol, sections: [...matches], count: matches.size, allSections: matches.size >= 6 }))
