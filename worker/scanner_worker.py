@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import signal
 import threading
 import time
@@ -42,6 +43,7 @@ class ScannerWorker:
         self.next_day_scanner = NextDayScanner(top_n=3)
         self.morning_hot_scanner = MorningHotScanner(top_n=5)
         self._morning_hot_done: set[str] = set()
+        self._premarket_snapshot_minute: str | None = None
         self._next_day_thread: threading.Thread | None = None
         self._next_day_done: set[str] = set()
         self._daily_history_cache: dict[str, dict[str, pd.DataFrame]] = {}
@@ -105,6 +107,10 @@ class ScannerWorker:
     def _heartbeat_loop(self) -> None:
         while self.running:
             self._heartbeat("LIVE")
+            try:
+                self._run_nse_premarket_study()
+            except Exception as exc:
+                print(f"[NSE PRE-MARKET WARNING] {exc}")
             for _ in range(30):
                 if not self.running:
                     return
@@ -195,6 +201,48 @@ class ScannerWorker:
             target += pd.Timedelta(days=1)
         return target.isoformat()
 
+
+    def _run_nse_premarket_study(self) -> None:
+        now = pd.Timestamp.now(tz="Asia/Kolkata")
+        if now.weekday() >= 5 or not (now.hour == 9 and 0 <= now.minute <= 8):
+            return
+        minute_key = now.strftime("%Y-%m-%d %H:%M")
+        if minute_key == self._premarket_snapshot_minute:
+            return
+        from worker.nse_premarket import NSEPreMarketStudy
+        snapshot = NSEPreMarketStudy().collect(now.to_pydatetime())
+        if snapshot.get("status") != "ok":
+            return
+        rows = snapshot.get("rows", [])
+        payload = [{
+            "id": f"{snapshot['snapshot_time']}|{row['symbol']}",
+            "snapshot_time": snapshot["snapshot_time"],
+            "trade_date": now.date().isoformat(),
+            "symbol": row["symbol"],
+            "previous_close": row.get("previous_close"),
+            "indicative_price": row.get("indicative_price"),
+            "indicative_gap_pct": row.get("indicative_gap_pct"),
+            "indicative_tradable_qty": row.get("indicative_tradable_qty"),
+            "buy_qty": row.get("buy_qty"),
+            "sell_qty": row.get("sell_qty"),
+            "imbalance_qty": row.get("imbalance_qty"),
+            "oi_change_pct": row.get("oi_change_pct"),
+            "oi_volume": row.get("oi_volume"),
+            "preopen_score": row.get("preopen_score", 0),
+            "preopen_bias": row.get("preopen_bias", "NEUTRAL / MIXED"),
+            "reasons": row.get("reasons", []),
+            "source_preopen": row.get("source_preopen"),
+            "source_oi": row.get("source_oi"),
+        } for row in rows]
+        if payload:
+            self.supabase._request(
+                "POST", "nse_premarket_study",
+                params={"on_conflict": "id"},
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                data=json.dumps(payload, default=str),
+            )
+        self._premarket_snapshot_minute = minute_key
+        print(f"[NSE PRE-MARKET] {snapshot['snapshot_time']}: preopen={snapshot.get('preopen_count', 0)} OI={snapshot.get('oi_count', 0)} stored={len(rows)}")
 
     def _run_morning_hot_scan(self) -> None:
         try:
