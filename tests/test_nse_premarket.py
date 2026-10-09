@@ -194,7 +194,8 @@ def test_nse_403_retries_with_fresh_session_then_succeeds(tmp_path, monkeypatch,
     assert result["status"] == "empty"
     assert len(sessions) == 2
     assert sessions[0] is not sessions[1]
-    assert calls["count"] == 3
+    # Both NSE endpoints are retried with the fresh cookie-backed session.
+    assert calls["count"] == 4
     assert "retry 1/2" in caplog.text
 
 
