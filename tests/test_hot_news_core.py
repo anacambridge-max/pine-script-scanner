@@ -72,3 +72,9 @@ def test_seen_news_deduplicates_same_headline_across_different_feeds(tmp_path):
     store = SeenNewsStore(tmp_path / "seen.sqlite3")
     assert store.is_new("https://feed-a.example/story?id=1", "HAL wins major defence order", "HAL", "feed-a")
     assert not store.is_new("https://feed-b.example/another-url", "HAL wins major defence order", "HAL", "feed-b")
+
+
+def test_previous_trading_day_skips_nse_holiday():
+    now = datetime(2026, 10, 21, 8, 30, tzinfo=IST)
+    published = datetime(2026, 10, 19, 16, 0, tzinfo=IST)
+    assert freshness_weight(published, now) == 0.6
