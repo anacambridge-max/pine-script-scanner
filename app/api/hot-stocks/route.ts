@@ -69,8 +69,25 @@ export async function GET() {
     );
   }
 
+  const technicalEndpoint = new URL(supabaseUrl + "/rest/v1/morning_technical_watch");
+  technicalEndpoint.searchParams.set("select", "*");
+  technicalEndpoint.searchParams.set("trade_date", "eq." + analysisDate);
+  technicalEndpoint.searchParams.set("order", "score.desc");
+  technicalEndpoint.searchParams.set("limit", "10");
+  const technicalResponse = await fetch(technicalEndpoint, {
+    headers: { apikey: serviceKey, Authorization: "Bearer " + serviceKey },
+    cache: "no-store",
+  });
+  let technicalOnlyRows: unknown[] = [];
+  if (technicalResponse.ok) {
+    technicalOnlyRows = await technicalResponse.json();
+  } else {
+    // A missing optional table must not take down the live signals or hot-stock list.
+    console.warn("Technical-only watch table is unavailable:", await technicalResponse.text());
+  }
+
   return NextResponse.json(
-    { trade_date: analysisDate, rows: JSON.parse(body) },
+    { trade_date: analysisDate, rows: JSON.parse(body), technical_only_rows: technicalOnlyRows },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }
