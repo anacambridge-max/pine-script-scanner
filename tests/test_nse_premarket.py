@@ -285,3 +285,17 @@ def test_oi_percentage_can_be_derived_from_current_and_previous_oi():
         "prevOI": 1000,
     })
     assert parsed["oi_change_pct"] == 10.0
+
+def test_partial_nse_source_failure_keeps_available_payload(monkeypatch):
+    monkeypatch.setattr(nse_premarket, "_nse_session", lambda: object())
+
+    def fake_get_json(_session, url):
+        if url == nse_premarket.PREOPEN_API:
+            return {"data": [{"symbol": "ABC"}]}
+        raise requests.HTTPError("OI endpoint unavailable")
+
+    monkeypatch.setattr(nse_premarket, "_get_json", fake_get_json)
+    preopen, oi = nse_premarket._fetch_payloads_with_retry()
+    assert preopen == {"data": [{"symbol": "ABC"}]}
+    assert oi == {}
+
