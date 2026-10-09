@@ -22,8 +22,7 @@ def test_rss_title_pubdate_and_description_are_parsed(monkeypatch):
 
 
 def test_atom_entry_timestamp_and_link_are_parsed(monkeypatch):
-    atom = """<?xml version="1.0" encoding="UTF-8"?>
-    <feed xmlns="http://www.w3.org/2005/Atom"><entry>
+    atom = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
       <title> BEL receives a major order </title>
       <link href="https://example.com/bel-order" />
       <updated>2026-10-08T03:00:00Z</updated>
