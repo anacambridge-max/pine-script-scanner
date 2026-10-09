@@ -205,7 +205,7 @@ def _flatten_preopen(row: dict[str, Any]) -> dict[str, Any]:
     reported_change = _number(_pick(merged, "pChange", "changePercent", "percentChange"))
     gap_pct = reported_change
     if gap_pct is None and iep is not None and prev_close:
-        gap_pct = (iep / prev_close - 1) * 100
+        gap_pct = round((iep / prev_close - 1) * 100, 4)
     if imbalance is None and buy_qty is not None and sell_qty is not None:
         imbalance = buy_qty - sell_qty
     return {
