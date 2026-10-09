@@ -181,7 +181,12 @@ class NSEPreMarketStudy:
 
     def collect(self, now: datetime | None = None) -> dict[str, Any]:
         now = (now or datetime.now(IST)).astimezone(IST)
-        if now.weekday() >= 5 or not (WINDOW_START <= now.time().replace(tzinfo=None) <= WINDOW_END):
+        try:
+            from worker.hot_stocks_config import NSE_HOLIDAYS
+        except Exception:
+            NSE_HOLIDAYS = set()
+        if (now.weekday() >= 5 or now.date().isoformat() in NSE_HOLIDAYS
+                or not (WINDOW_START <= now.time().replace(tzinfo=None) <= WINDOW_END)):
             return {"status": "outside_window", "snapshot_time": now.isoformat(), "rows": []}
         session = _nse_session()
         preopen_payload = _get_json(session, PREOPEN_API)
