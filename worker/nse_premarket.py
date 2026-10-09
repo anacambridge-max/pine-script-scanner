@@ -193,9 +193,19 @@ def _flatten_oi(row: dict[str, Any]) -> dict[str, Any]:
 
     visit(row)
     symbol = _pick(merged, "symbol", "underlying", "underlyingSymbol", "identifier")
-    # Never label absolute OI-contract change as a percentage. Use only fields
-    # whose names explicitly denote percent change; missing percentage stays null.
-    oi_change_pct = _number(_pick(merged, "oiChangePercent", "changeInOIPercent", "percentChangeInOI", "pChange"))
+    # NSE's OI-spurts payload commonly uses pchangeInOI. Do not use generic
+    # pChange: that can mean underlying-price change rather than OI change.
+    oi_change_pct = _number(_pick(
+        merged, "pchangeInOI", "pChangeInOI", "oiChangePercent",
+        "changeInOIPercent", "percentChangeInOI", "percentChangeOI",
+    ))
+    # Some endpoint versions expose current/previous OI but omit the percentage.
+    # Derive it only when both contract counts are available and previous OI > 0.
+    if oi_change_pct is None:
+        current_oi = _number(_pick(merged, "latestOI", "currentOI", "openInterest", "oi"))
+        previous_oi = _number(_pick(merged, "prevOI", "previousOI", "previousOpenInterest", "prevOpenInterest"))
+        if current_oi is not None and previous_oi is not None and previous_oi > 0:
+            oi_change_pct = (current_oi / previous_oi - 1.0) * 100.0
     volume = _number(_pick(merged, "volume", "totalTradedVolume", "tradedVolume"))
     return {"symbol": str(symbol or "").strip().upper(), "oi_change_pct": oi_change_pct,
             "oi_volume": volume, "raw": merged}
