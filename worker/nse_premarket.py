@@ -275,15 +275,21 @@ class NSEPreMarketStudy:
         for item in oi_rows:
             if item["symbol"]:
                 oi_by_symbol[item["symbol"]] = item
+        # Keep the union of both official sources. An OI-spurt symbol must not
+        # disappear merely because it has no row in the pre-open payload.
+        preopen_by_symbol = {
+            row["symbol"]: row for row in preopen_rows if row.get("symbol")
+        }
+        symbols = sorted(set(preopen_by_symbol) | set(oi_by_symbol))
         merged_rows = []
         stamp = now.replace(second=0, microsecond=0).isoformat()
         with sqlite3.connect(self.db_path) as db:
-            for item in preopen_rows:
-                symbol = item.get("symbol", "")
-                if not symbol:
-                    continue
+            for symbol in symbols:
+                item = preopen_by_symbol.get(symbol, {})
                 oi = oi_by_symbol.get(symbol, {})
                 score, direction, reasons = _score_preopen(item)
+                if not item:
+                    reasons.append("OI-spurt symbol; pre-open fields unavailable")
                 oi_change = oi.get("oi_change_pct")
                 # OI change is context, not directional proof; show it separately.
                 if oi_change is not None and abs(float(oi_change)) >= 5:
@@ -298,18 +304,24 @@ class NSEPreMarketStudy:
                     "imbalance_qty": item.get("imbalance_qty"),
                     "oi_change_pct": oi_change, "oi_volume": oi.get("oi_volume"),
                     "preopen_score": score, "preopen_bias": direction, "reasons": reasons,
-                    "source_preopen": PREOPEN_PAGE, "source_oi": OI_PAGE,
+                    "source_preopen": PREOPEN_PAGE if item else None,
+                    "source_oi": OI_PAGE if oi else None,
                 }
                 merged_rows.append(item_out)
-                db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)",
-                           (stamp, symbol, "preopen", json.dumps(item.get("raw", {}), ensure_ascii=False, default=str)))
+                if item:
+                    db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)",
+                               (stamp, symbol, "preopen", json.dumps(item.get("raw", {}), ensure_ascii=False, default=str)))
                 if oi:
                     db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)",
                                (stamp, symbol, "oi_spurts", json.dumps(oi.get("raw", {}), ensure_ascii=False, default=str)))
-        merged_rows.sort(key=lambda x: (abs(x["preopen_score"]), abs(x.get("indicative_gap_pct") or 0)), reverse=True)
-        if not preopen_rows:
+        merged_rows.sort(
+            key=lambda x: (abs(x["preopen_score"]), abs(x.get("oi_change_pct") or 0),
+                           abs(x.get("indicative_gap_pct") or 0)),
+            reverse=True,
+        )
+        if not merged_rows:
             return {"status": "empty", "snapshot_time": stamp, "rows": [],
-                    "preopen_count": 0, "oi_count": len(oi_rows)}
+                    "preopen_count": len(preopen_rows), "oi_count": len(oi_rows)}
         return {"status": "ok", "snapshot_time": stamp, "rows": merged_rows[:200],
                 "preopen_count": len(preopen_rows), "oi_count": len(oi_rows)}
 
