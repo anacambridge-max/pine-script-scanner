@@ -139,7 +139,7 @@ def test_preopen_parser_reads_nested_preopen_market_object():
     assert parsed["indicative_price"] == 1020
     assert parsed["buy_qty"] == 8000
     assert parsed["sell_qty"] == 2000
-    assert parsed["indicative_gap_pct"] == 2.0
+    assert abs(parsed["indicative_gap_pct"] - 2.0) < 1e-9
 
 def test_collect_can_restrict_rows_to_fno_universe(tmp_path, monkeypatch):
     study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
