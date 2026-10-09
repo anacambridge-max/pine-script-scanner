@@ -47,19 +47,23 @@ def freshness_weight(published: datetime | None, now: datetime | None = None,
     """Credit only timestamps in the current pre-open window or previous session's after-close window."""
     if published is None or published.tzinfo is None:
         return 0.0
+    try:
+        from worker.hot_stocks_config import PREOPEN_CUTOFF, PREVIOUS_SESSION_CLOSE
+    except Exception:
+        PREOPEN_CUTOFF, PREVIOUS_SESSION_CLOSE = time(9, 0), time(15, 30)
     now = now or datetime.now(IST)
     if now.tzinfo is None:
         return 0.0
     now = now.astimezone(IST)
     published = published.astimezone(IST)
-    if published > now or now.time() > time(9, 0):
+    if published > now or now.time() > PREOPEN_CUTOFF:
         return 0.0
 
     previous_session = _previous_trading_day(now.date())
     in_previous_close_window = (
-        published.date() == previous_session and published.time() >= time(15, 30)
+        published.date() == previous_session and published.time() >= PREVIOUS_SESSION_CLOSE
     )
-    in_current_preopen_window = published.date() == now.date() and published.time() <= time(9, 0)
+    in_current_preopen_window = published.date() == now.date() and published.time() <= PREOPEN_CUTOFF
     if not (in_previous_close_window or in_current_preopen_window):
         return 0.0
 
