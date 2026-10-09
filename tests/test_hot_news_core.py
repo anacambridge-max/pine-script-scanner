@@ -82,6 +82,6 @@ def test_previous_trading_day_skips_nse_holiday():
 
 def test_direction_classification_supports_hindi_without_changing_tier():
     from worker.hot_news_core import classify_direction, catalyst_tier
-    text = "मिला ऑर्डर और जुर्माना"
+    text = "मिला ऑर्डर, बड़ा ऑर्डर और जुर्माना"
     assert classify_direction(text) == "mixed"
     assert catalyst_tier(text)[0] == "MATERIAL EVENT"
