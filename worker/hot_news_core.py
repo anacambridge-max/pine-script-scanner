@@ -56,7 +56,7 @@ def freshness_weight(published: datetime | None, now: datetime | None = None,
         return 0.0
     now = now.astimezone(IST)
     published = published.astimezone(IST)
-    # Scan may finish until 09:15; eligible current-day news must still be published by 09:00.
+    # The news gate runs only during the intended pre-open window.
     if published > now or now.time() > SCAN_CUTOFF:
         return 0.0
 
@@ -66,6 +66,9 @@ def freshness_weight(published: datetime | None, now: datetime | None = None,
     )
     in_current_preopen_window = published.date() == now.date() and published.time() <= PREOPEN_CUTOFF
     if not (in_previous_close_window or in_current_preopen_window):
+        return 0.0
+    # Current-day headlines published after 09:00 are ineligible, even if scan finishes by 09:15.
+    if published.date() == now.date() and published.time() > PREOPEN_CUTOFF:
         return 0.0
 
     age = (now - published).total_seconds() / 3600
