@@ -123,15 +123,20 @@ class MorningHotScanner:
             "reasons": reasons,
         }
 
-    def scan(
+    def scan_all(
         self,
         histories: dict[str, pd.DataFrame],
         instrument_map: dict[str, str],
         company_map: dict[str, str],
         analysis_date: date,
         news_items: list[NewsItem],
-    ) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        from worker.hot_news_core import load_aliases, alias_matches, score_news, qualifies, SeenNewsStore
+        from worker.hot_stocks_config import MIN_TECH_SCORE
+        aliases_map = load_aliases()
+        seen_store = SeenNewsStore()
+        hot_rows: list[dict[str, Any]] = []
+        technical_rows: list[dict[str, Any]] = []
         for instrument_key, frame in histories.items():
             symbol = instrument_map.get(instrument_key, instrument_key.split("|", 1)[-1])
             company = company_map.get(instrument_key, symbol)
@@ -139,40 +144,62 @@ class MorningHotScanner:
                 tech = self._technical(frame, analysis_date)
                 if not tech:
                     continue
-                news_score, news_impact, news_titles = match_news(symbol, company, news_items)
-
-                # Hot Stocks must satisfy BOTH sides: completed-session
-                # technical activity AND at least one relevant fresh news
-                # catalyst. Technical-only names are not eligible.
-                if news_score <= 0 or not news_titles:
-                    continue
-
-                score = round(tech["technical_score"] * 0.70 + news_score)
-                reasons = list(tech["reasons"])
-                if news_titles:
-                    reasons.append(f"Moneycontrol: {news_impact}")
-                rows.append({
-                    "trade_date": analysis_date.isoformat(),
-                    "symbol": symbol,
-                    "instrument_key": instrument_key,
-                    "company_name": company,
-                    "score": max(0, min(100, score)),
-                    "technical_score": int(tech["technical_score"]),
-                    "news_score": int(news_score),
-                    "close": tech["close"],
-                    "change_percent": tech["change_percent"],
-                    "volume_multiple": tech["volume_multiple"],
-                    "body_ratio": tech["body_ratio"],
-                    "range_expansion": tech["range_expansion"],
-                    "compression_score": tech["compression_score"],
-                    "breakout_proximity": tech["breakout_proximity"],
-                    "news_impact": news_impact,
+                candidates = []
+                for item in news_items:
+                    aliases = list(dict.fromkeys([symbol, company] + aliases_map.get(symbol, [])))
+                    title_match = alias_matches(item.title, aliases)
+                    body_match = alias_matches(item.text, aliases)
+                    if not (title_match or body_match):
+                        continue
+                    # Require a real published timestamp; unknown dates get zero credit.
+                    scored = score_news(item.title + " " + item.text, item.published_at)
+                    if not scored["news_score"]:
+                        continue
+                    if not seen_store.is_new(item.url, item.title, symbol, getattr(item, "source", "") or item.url):
+                        continue
+                    candidates.append((scored, item, 1.0 if title_match else 0.5))
+                if candidates:
+                    candidates.sort(key=lambda x: (x[0]["news_score"] * x[2], x[0]["published_ist"] or ""), reverse=True)
+                    scored, item, match_factor = candidates[0]
+                    news_score = min(30, round(scored["news_score"] * match_factor))
+                    news_impact = scored["direction"].upper() + " · " + scored["tier"]
+                    news_titles = [{
+                        "title": item.title[:240], "url": item.url, "impact": news_impact,
+                        "source": getattr(item, "source", "") or item.url.split("/")[2],
+                        "published_at": scored["published_ist"], "direction": scored["direction"]
+                    }]
+                    published_ist = scored["published_ist"]
+                    news_source = news_titles[0]["source"]
+                    direction = scored["direction"]
+                else:
+                    news_score, news_impact, news_titles = 0, "NO FRESH MATCH", []
+                    published_ist, news_source, direction = None, None, "neutral"
+                row = {
+                    "trade_date": analysis_date.isoformat(), "symbol": symbol,
+                    "instrument_key": instrument_key, "company_name": company,
+                    "score": max(0, min(100, round(tech["technical_score"] * 0.70 + news_score))),
+                    "technical_score": int(tech["technical_score"]), "news_score": int(news_score),
+                    "close": tech["close"], "change_percent": tech["change_percent"],
+                    "volume_multiple": tech["volume_multiple"], "body_ratio": tech["body_ratio"],
+                    "range_expansion": tech["range_expansion"], "compression_score": tech["compression_score"],
+                    "breakout_proximity": tech["breakout_proximity"], "news_impact": news_impact,
                     "news_summary": news_titles[0]["title"] if news_titles else None,
-                    "news_titles": news_titles,
-                    "reasons": reasons,
-                    "setup": "TODAY HOT STOCK",
-                })
-            except Exception:
-                continue
+                    "news_titles": news_titles, "news_source": news_source,
+                    "published_ist": published_ist, "direction": direction,
+                    "reasons": list(tech["reasons"]) + ([f"Fresh news: {news_impact}"] if news_score else ["No eligible fresh news"]),
+                    "setup": "TODAY HOT STOCK" if qualifies(tech["technical_score"], news_score, MIN_TECH_SCORE) else "TECHNICAL ONLY WATCH",
+                }
+                if qualifies(tech["technical_score"], news_score, MIN_TECH_SCORE):
+                    hot_rows.append(row)
+                elif tech["technical_score"] >= MIN_TECH_SCORE:
+                    technical_rows.append(row)
+            except Exception as exc:
+                print(f"[MORNING HOT WARNING] {symbol}: {exc}")
+        key=lambda x: (x["score"], x["news_score"], x["technical_score"])
+        return sorted(hot_rows, key=key, reverse=True)[:self.top_n], sorted(technical_rows, key=key, reverse=True)[:self.top_n]
 
-        return sorted(rows, key=lambda x: (x["score"], x["news_score"], x["technical_score"]), reverse=True)[: self.top_n]
+    def scan(
+        self, histories: dict[str, pd.DataFrame], instrument_map: dict[str, str],
+        company_map: dict[str, str], analysis_date: date, news_items: list[NewsItem],
+    ) -> list[dict[str, Any]]:
+        return self.scan_all(histories, instrument_map, company_map, analysis_date, news_items)[0]
