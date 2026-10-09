@@ -138,7 +138,9 @@ def _flatten_oi(row: dict[str, Any]) -> dict[str, Any]:
         elif not isinstance(value, list):
             merged[key] = value
     symbol = _pick(merged, "symbol", "underlying", "underlyingSymbol", "identifier")
-    oi_change_pct = _number(_pick(merged, "changeInOI", "changeInOi", "oiChangePercent", "changeInOIPercent", "pChange"))
+    # Never label absolute OI-contract change as a percentage. Use only fields
+    # whose names explicitly denote percent change; missing percentage stays null.
+    oi_change_pct = _number(_pick(merged, "oiChangePercent", "changeInOIPercent", "percentChangeInOI", "pChange"))
     volume = _number(_pick(merged, "volume", "totalTradedVolume", "tradedVolume"))
     return {"symbol": str(symbol or "").strip().upper(), "oi_change_pct": oi_change_pct,
             "oi_volume": volume, "raw": merged}
