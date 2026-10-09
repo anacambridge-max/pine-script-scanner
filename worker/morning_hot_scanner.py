@@ -131,7 +131,7 @@ class MorningHotScanner:
         analysis_date: date,
         news_items: list[NewsItem],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        from worker.hot_news_core import load_aliases, alias_matches, score_news, qualifies, SeenNewsStore
+        from worker.hot_news_core import load_aliases, alias_matches, extract_stock_specific_text, score_news, qualifies, SeenNewsStore
         from worker.hot_stocks_config import MIN_TECH_SCORE
         aliases_map = load_aliases()
         seen_store = SeenNewsStore()
@@ -151,8 +151,11 @@ class MorningHotScanner:
                     body_match = alias_matches(item.text, aliases)
                     if not (title_match or body_match):
                         continue
-                    # Require a real published timestamp; unknown dates get zero credit.
-                    scored = score_news(item.title + " " + item.text, item.published_at)
+                    # Score only the headline and stock-specific roundup sentence(s).
+                    # This prevents a catalyst for one company being assigned to every
+                    # company mentioned elsewhere in the same roundup.
+                    stock_context = extract_stock_specific_text(item.title, item.text, aliases)
+                    scored = score_news(stock_context, item.published_at)
                     if not scored["news_score"]:
                         continue
                     if not seen_store.is_new(item.url, item.title, symbol, getattr(item, "source", "") or item.url):
