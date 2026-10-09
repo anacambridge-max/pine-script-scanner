@@ -76,7 +76,7 @@ def test_collection_only_runs_inside_0900_to_0908(tmp_path, monkeypatch):
     assert study.collect(weekend)["status"] == "outside_window"
 
 
-def test_empty_preopen_payload_is_not_reported_as_success(tmp_path, monkeypatch):
+def test_empty_preopen_payload_is_not_reported_as_success_with_empty_data_key(tmp_path, monkeypatch):
     study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
     class FakeSession:
         pass
@@ -87,7 +87,7 @@ def test_empty_preopen_payload_is_not_reported_as_success(tmp_path, monkeypatch)
     assert result["rows"] == []
 
 
-def test_nse_network_failure_is_retryable_not_success(tmp_path, monkeypatch):
+def test_nse_network_failure_is_retryable_not_success_on_first_attempt(tmp_path, monkeypatch):
     study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
     def fail():
         raise RuntimeError("temporarily blocked")
@@ -97,7 +97,7 @@ def test_nse_network_failure_is_retryable_not_success(tmp_path, monkeypatch):
     assert "temporarily blocked" in result["error"]
 
 
-def test_empty_preopen_payload_is_not_reported_as_success(tmp_path, monkeypatch):
+def test_empty_preopen_payload_is_not_reported_as_success_with_empty_rows_key(tmp_path, monkeypatch):
     study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
     monkeypatch.setattr(nse_premarket, "_nse_session", lambda: object())
     monkeypatch.setattr(nse_premarket, "_get_json", lambda session, url: {"data": []})
@@ -106,7 +106,7 @@ def test_empty_preopen_payload_is_not_reported_as_success(tmp_path, monkeypatch)
     assert result["rows"] == []
 
 
-def test_nse_network_failure_is_retryable_not_success(tmp_path, monkeypatch):
+def test_nse_network_failure_is_retryable_not_success_after_retry(tmp_path, monkeypatch):
     study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
     def fail():
         raise RuntimeError("temporarily blocked")
