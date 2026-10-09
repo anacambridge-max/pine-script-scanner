@@ -48,15 +48,16 @@ def freshness_weight(published: datetime | None, now: datetime | None = None,
     if published is None or published.tzinfo is None:
         return 0.0
     try:
-        from worker.hot_stocks_config import PREOPEN_CUTOFF, PREVIOUS_SESSION_CLOSE
+        from worker.hot_stocks_config import PREOPEN_CUTOFF, SCAN_CUTOFF, PREVIOUS_SESSION_CLOSE
     except Exception:
-        PREOPEN_CUTOFF, PREVIOUS_SESSION_CLOSE = time(9, 0), time(15, 30)
+        PREOPEN_CUTOFF, SCAN_CUTOFF, PREVIOUS_SESSION_CLOSE = time(9, 0), time(9, 15), time(15, 30)
     now = now or datetime.now(IST)
     if now.tzinfo is None:
         return 0.0
     now = now.astimezone(IST)
     published = published.astimezone(IST)
-    if published > now or now.time() > PREOPEN_CUTOFF:
+    # Scan may finish until 09:15; eligible current-day news must still be published by 09:00.
+    if published > now or now.time() > SCAN_CUTOFF:
         return 0.0
 
     previous_session = _previous_trading_day(now.date())
