@@ -105,13 +105,24 @@ def extract_stock_specific_text(title: str, body: str, aliases: list[str]) -> st
 
 def classify_direction(text: str) -> str:
     t=(text or "").casefold()
-    pos=any(k in t for k in POSITIVE); neg=any(k in t for k in NEGATIVE)
+    try:
+        from worker.hot_stocks_config import POSITIVE_KEYWORDS, NEGATIVE_KEYWORDS
+        positive_words, negative_words = POSITIVE_KEYWORDS, NEGATIVE_KEYWORDS
+    except Exception:
+        positive_words, negative_words = POSITIVE, NEGATIVE
+    pos=any(k.casefold() in t for k in positive_words)
+    neg=any(k.casefold() in t for k in negative_words)
     return "mixed" if pos and neg else "positive" if pos else "negative" if neg else "neutral"
 
 def catalyst_tier(text: str) -> tuple[str, int]:
     t=(text or "").casefold()
-    if any(k in t for k in MATERIAL): return "MATERIAL EVENT", TIER_POINTS["MATERIAL EVENT"]
-    if any(k in t for k in CATALYST): return "STRONG CATALYST", TIER_POINTS["STRONG CATALYST"]
+    try:
+        from worker.hot_stocks_config import MATERIAL_KEYWORDS, STRONG_KEYWORDS
+        material_words, catalyst_words = MATERIAL_KEYWORDS, STRONG_KEYWORDS
+    except Exception:
+        material_words, catalyst_words = MATERIAL, CATALYST
+    if any(k.casefold() in t for k in material_words): return "MATERIAL EVENT", TIER_POINTS["MATERIAL EVENT"]
+    if any(k.casefold() in t for k in catalyst_words): return "STRONG CATALYST", TIER_POINTS["STRONG CATALYST"]
     return "GENERAL MENTION", TIER_POINTS["GENERAL MENTION"]
 
 def score_news(text: str, published_at: Any, now: datetime | None = None) -> dict[str, Any]:
