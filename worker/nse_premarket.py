@@ -240,6 +240,8 @@ class NSEPreMarketStudy:
                 score, direction, reasons = _score_preopen(item)
                 oi_change = oi.get("oi_change_pct")
                 # OI change is context, not directional proof; show it separately.
+                if oi_change is not None and abs(float(oi_change)) >= 5:
+                    reasons.append(f"OI spurt {float(oi_change):+.2f}% (context only)")
                 item_out = {
                     "snapshot_time": stamp, "symbol": symbol,
                     "previous_close": item.get("previous_close"),
