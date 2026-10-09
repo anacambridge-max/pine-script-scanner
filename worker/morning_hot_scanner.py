@@ -161,6 +161,11 @@ class MorningHotScanner:
                 tech = self._technical(frame, analysis_date)
                 if not tech:
                     continue
+                # Do not consume/deduplicate headlines for symbols that cannot
+                # enter either morning watchlist. This also keeps repeated scan
+                # retries from burning news credit on low-scoring technical names.
+                if tech["technical_score"] < MIN_TECH_SCORE:
+                    continue
                 # Optional exclusion lists are deliberately opt-in and must be
                 # maintained from official exchange/company calendars.
                 if EXCLUDE_RESULTS_DAY and symbol in results_today:
