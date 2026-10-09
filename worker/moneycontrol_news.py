@@ -173,6 +173,8 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                             description_node = node.find("{http://www.w3.org/2005/Atom}summary")
                         if description_node is None:
                             description_node = node.find("{http://purl.org/rss/1.0/modules/content/}encoded")
+                        if description_node is None:
+                            description_node = next((child for child in node if child.tag.rsplit("}", 1)[-1].casefold() in {"description", "summary", "encoded", "content"}), None)
                         description = ""
                         if description_node is not None and description_node.text:
                             description = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", description_node.text))).strip()
