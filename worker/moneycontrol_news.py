@@ -141,7 +141,8 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
         try:
             raw_html = _fetch(source)
             # Parse RSS/Atom timestamps before falling back to HTML link scraping.
-            if "rss" in source.lower() or raw_html.lstrip().startswith("<?xml"):
+            feed_prefix = raw_html.lstrip().lower()
+            if "rss" in source.lower() or feed_prefix.startswith(("<?xml", "<rss", "<feed")):
                 try:
                     root = ET.fromstring(raw_html)
                     for node in root.findall(".//item") + root.findall(".//{http://www.w3.org/2005/Atom}entry"):
