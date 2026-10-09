@@ -242,8 +242,15 @@ class ScannerWorker:
                 histories, self.instrument_map, self.company_map, analysis_date, news_items,
                 scan_time=now.to_pydatetime(),
             )
+            # Replace the whole daily snapshot, not just upsert returned rows.
+            # Otherwise an empty scan can leave yesterday's candidates visible.
+            self.supabase._request(
+                "DELETE", "morning_hot_stocks",
+                params={"trade_date": f"eq.{analysis_date.isoformat()}"},
+            )
+            from worker.hot_stocks_store import clear_technical_watch, write_technical_watch
+            clear_technical_watch(self.supabase, analysis_date.isoformat())
             count = self.supabase.write_morning_hot_stocks(rows)
-            from worker.hot_stocks_store import write_technical_watch
             technical_count = write_technical_watch(self.supabase, technical_only)
             # Persist local history even when Supabase has no qualified hot names.
             try:
