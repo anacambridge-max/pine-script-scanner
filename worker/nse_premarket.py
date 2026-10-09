@@ -222,7 +222,7 @@ class NSEPreMarketStudy:
                     db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)",
                                (stamp, symbol, "oi_spurts", json.dumps(oi.get("raw", {}), ensure_ascii=False, default=str)))
         merged_rows.sort(key=lambda x: (abs(x["preopen_score"]), abs(x.get("indicative_gap_pct") or 0)), reverse=True)
-        return {"status": "ok", "snapshot_time": stamp, "rows": merged_rows,
+        return {"status": "ok", "snapshot_time": stamp, "rows": merged_rows[:200],
                 "preopen_count": len(preopen_rows), "oi_count": len(oi_rows)}
 
     def latest(self, limit: int = 30) -> list[dict[str, Any]]:
