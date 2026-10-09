@@ -87,13 +87,16 @@ class MorningHotScanner:
         range_score = self._clamp((range_expansion - 0.8) / 1.0 * 100)
         move_score = self._clamp(abs(change_pct) / 6 * 100)
 
+        # Keep the weights driven by the same config shown in the project.
+        from worker.hot_stocks_config import TECHNICAL_WEIGHTS
+        weights = TECHNICAL_WEIGHTS
         technical = round(
-            0.25 * volume_score
-            + 0.20 * body_score
-            + 0.15 * range_score
-            + 0.15 * compression
-            + 0.15 * proximity
-            + 0.10 * move_score
+            weights["volume"] * volume_score
+            + weights["body"] * body_score
+            + weights["range"] * range_score
+            + weights["compression"] * compression
+            + weights["proximity"] * proximity
+            + weights["move"] * move_score
         )
 
         reasons: list[str] = []
