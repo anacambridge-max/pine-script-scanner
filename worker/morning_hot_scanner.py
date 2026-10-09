@@ -202,15 +202,15 @@ class MorningHotScanner:
                     else:
                         scored, item, match_factor = selected
                         news_score = min(30, round(scored["news_score"] * match_factor))
-                    news_impact = scored["direction"].upper() + " · " + scored["tier"]
-                    news_titles = [{
-                        "title": item.title[:240], "url": item.url, "impact": news_impact,
-                        "source": getattr(item, "source", "") or item.url.split("/")[2],
-                        "published_at": scored["published_ist"], "direction": scored["direction"]
-                    }]
-                    published_ist = scored["published_ist"]
-                    news_source = news_titles[0]["source"]
-                    direction = scored["direction"]
+                        news_impact = scored["direction"].upper() + " · " + scored["tier"]
+                        news_titles = [{
+                            "title": item.title[:240], "url": item.url, "impact": news_impact,
+                            "source": getattr(item, "source", "") or item.url.split("/")[2],
+                            "published_at": scored["published_ist"], "direction": scored["direction"]
+                        }]
+                        published_ist = scored["published_ist"]
+                        news_source = news_titles[0]["source"]
+                        direction = scored["direction"]
                 else:
                     news_score, news_impact, news_titles = 0, "NO FRESH MATCH", []
                     published_ist, news_source, direction = None, None, "neutral"
