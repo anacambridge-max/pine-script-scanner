@@ -198,7 +198,7 @@ class NSEPreMarketStudy:
                 payload_json TEXT NOT NULL, PRIMARY KEY(snapshot_time, symbol, source))""")
             db.execute("CREATE INDEX IF NOT EXISTS snapshots_symbol_time_idx ON snapshots(symbol, snapshot_time)")
 
-    def collect(self, now: datetime | None = None) -> dict[str, Any]:
+    def collect(self, now: datetime | None = None, allowed_symbols: set[str] | None = None) -> dict[str, Any]:
         now = now or datetime.now(IST)
         if now.tzinfo is None:
             return {"status": "invalid_time", "snapshot_time": now.isoformat(), "rows": []}
@@ -220,6 +220,11 @@ class NSEPreMarketStudy:
                     "rows": [], "error": f"{type(exc).__name__}: {exc}"}
         preopen_rows = [_flatten_preopen(x) for x in _rows(preopen_payload)]
         oi_rows = [_flatten_oi(x) for x in _rows(oi_payload)]
+        if allowed_symbols is not None:
+            # Keep the study aligned with the scanner's F&O stock universe.
+            allowed = {str(symbol).strip().upper() for symbol in allowed_symbols}
+            preopen_rows = [row for row in preopen_rows if row.get("symbol") in allowed]
+            oi_rows = [row for row in oi_rows if row.get("symbol") in allowed]
         oi_by_symbol: dict[str, dict[str, Any]] = {}
         for item in oi_rows:
             if item["symbol"]:
