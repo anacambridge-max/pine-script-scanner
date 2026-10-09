@@ -78,3 +78,10 @@ def test_previous_trading_day_skips_nse_holiday():
     now = datetime(2026, 10, 21, 8, 30, tzinfo=IST)
     published = datetime(2026, 10, 19, 16, 0, tzinfo=IST)
     assert freshness_weight(published, now) == 0.6
+
+
+def test_direction_classification_supports_hindi_without_changing_tier():
+    from worker.hot_news_core import classify_direction, catalyst_tier
+    text = "मिला ऑर्डर और जुर्माना"
+    assert classify_direction(text) == "mixed"
+    assert catalyst_tier(text)[0] == "MATERIAL EVENT"
