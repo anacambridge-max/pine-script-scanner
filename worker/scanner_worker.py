@@ -202,7 +202,8 @@ class ScannerWorker:
             trade_date = now.date().isoformat()
             if trade_date in self._morning_hot_done:
                 return
-            if (now.hour, now.minute) >= (9, 15):
+            from worker.hot_stocks_config import PREOPEN_CUTOFF
+            if now.time().replace(tzinfo=None) > PREOPEN_CUTOFF:
                 return
 
             today = now.date()
