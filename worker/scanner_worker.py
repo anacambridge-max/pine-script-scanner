@@ -52,6 +52,7 @@ class ScannerWorker:
         self.captured_count = 0
         self.last_heartbeat = 0.0
         self._heartbeat_thread: threading.Thread | None = None
+        self._premarket_thread: threading.Thread | None = None
 
     def _new_feed(self) -> UpstoxV3Feed:
         feed = UpstoxV3Feed(self.access_token, list(self.instrument_map))
@@ -105,13 +106,25 @@ class ScannerWorker:
             print(f"[HEARTBEAT ERROR] {exc}")
 
     def _heartbeat_loop(self) -> None:
+        # Heartbeats stay independent from NSE HTTP latency.
         while self.running:
             self._heartbeat("LIVE")
+            for _ in range(30):
+                if not self.running:
+                    return
+                time.sleep(1)
+
+    def _premarket_study_loop(self) -> None:
+        # Poll frequently enough to capture each minute from 09:00 through
+        # 09:08 IST. _run_nse_premarket_study deduplicates by minute, so these
+        # checks do not create duplicate snapshots. Keep this separate from
+        # heartbeats and the confirmed BUY/SELL feed.
+        while self.running:
             try:
                 self._run_nse_premarket_study()
             except Exception as exc:
                 print(f"[NSE PRE-MARKET WARNING] {exc}")
-            for _ in range(30):
+            for _ in range(5):
                 if not self.running:
                     return
                 time.sleep(1)
@@ -514,6 +527,12 @@ class ScannerWorker:
             daemon=True,
         )
         self._heartbeat_thread.start()
+        self._premarket_thread = threading.Thread(
+            target=self._premarket_study_loop,
+            name="nse-premarket-study",
+            daemon=True,
+        )
+        self._premarket_thread.start()
 
         print(
             f"Prime live scanner starting with {len(self.instrument_map)} "
