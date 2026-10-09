@@ -268,6 +268,12 @@ class ScannerWorker:
                 history.save(rows, analysis_date.isoformat(), "HOT")
                 history.save(technical_only, analysis_date.isoformat(), "TECHNICAL_ONLY")
                 history.export_csv()
+                backtest = history.backtest(min_move_pct=1.5)
+                print(
+                    f"[MORNING BACKTEST] evaluated={backtest['evaluated']} "
+                    f"move_hits={backtest['absolute_move_hits']} "
+                    f"range_hits={backtest['range_expansion_hits']}"
+                )
             except Exception as history_exc:
                 print(f"[MORNING HISTORY WARNING] {history_exc}")
             if count or technical_count or not rows:
