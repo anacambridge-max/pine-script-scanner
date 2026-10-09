@@ -112,7 +112,7 @@ def test_current_day_news_after_0900_is_rejected():
     assert freshness_weight(published, now) == 0.0
 
 
-def test_current_day_news_after_0900_is_rejected():
+def test_current_day_news_after_0900_is_rejected_even_during_late_scan():
     now = datetime(2026, 10, 8, 9, 8, tzinfo=IST)
     published = datetime(2026, 10, 8, 9, 1, tzinfo=IST)
     assert freshness_weight(published, now) == 0.0
