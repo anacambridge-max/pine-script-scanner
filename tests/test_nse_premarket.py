@@ -114,3 +114,29 @@ def test_nse_network_failure_is_retryable_not_success(tmp_path, monkeypatch):
     result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
     assert result["status"] == "unavailable"
     assert "temporarily blocked" in result["error"]
+
+def test_oi_absolute_change_is_not_mislabeled_as_percentage():
+    parsed = nse_premarket._flatten_oi({
+        "symbol": "ABC",
+        "changeInOI": 250000,
+        "volume": 1000000,
+    })
+    assert parsed["oi_change_pct"] is None
+    assert parsed["oi_volume"] == 1000000
+
+
+def test_preopen_parser_reads_nested_preopen_market_object():
+    parsed = nse_premarket._flatten_preopen({
+        "metadata": {"symbol": "HAL", "previousClose": 1000},
+        "detail": {"preOpenMarket": {
+            "IEP": 1020,
+            "totalBuyQuantity": 8000,
+            "totalSellQuantity": 2000,
+            "finalQuantity": 5000,
+        }},
+    })
+    assert parsed["symbol"] == "HAL"
+    assert parsed["indicative_price"] == 1020
+    assert parsed["buy_qty"] == 8000
+    assert parsed["sell_qty"] == 2000
+    assert parsed["indicative_gap_pct"] == 2.0
