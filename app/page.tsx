@@ -49,6 +49,10 @@ export default function Home() {
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
   const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
+  const [preMarketSnapshotCount, setPreMarketSnapshotCount] = useState(0);
+  const [preMarketStudyComplete, setPreMarketStudyComplete] = useState(false);
+  const [preMarketWindowStart, setPreMarketWindowStart] = useState<string | null>(null);
+  const [preMarketWindowEnd, setPreMarketWindowEnd] = useState<string | null>(null);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -76,6 +80,10 @@ export default function Home() {
       if (response.ok) {
         setPreMarketRows(payload.rows ?? []);
         setPreMarketSnapshotTime(payload.snapshot_time ?? null);
+        setPreMarketSnapshotCount(Number(payload.snapshot_count ?? 0));
+        setPreMarketStudyComplete(Boolean(payload.study_complete));
+        setPreMarketWindowStart(payload.window_start ?? null);
+        setPreMarketWindowEnd(payload.window_end ?? null);
       }
     } catch {
       // This optional pre-market panel must never affect confirmed signals.
@@ -368,7 +376,7 @@ export default function Home() {
             <strong>NSE PRE-MARKET STUDY · 09:00–09:08 IST</strong>
             <span>
               {preMarketSnapshotTime
-                ? `Latest NSE snapshot ${timeFmt(preMarketSnapshotTime)} IST · indicative pre-open demand/supply + OI spurts context`
+                ? `Latest NSE snapshot ${timeFmt(preMarketSnapshotTime)} IST · ${preMarketSnapshotCount}/9 minute snapshots ${preMarketStudyComplete ? "captured" : "captured so far"}${preMarketWindowStart && preMarketWindowEnd ? ` · window ${timeFmt(preMarketWindowStart)}–${timeFmt(preMarketWindowEnd)} IST` : ""} · indicative demand/supply + OI spurts context`
                 : "Waiting for the next 09:00–09:08 IST snapshot · NSE indicative data only, not a BUY/SELL signal"}
             </span>
           </div>
