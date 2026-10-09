@@ -212,6 +212,7 @@ class ScannerWorker:
         from worker.nse_premarket import NSEPreMarketStudy
         snapshot = NSEPreMarketStudy().collect(now.to_pydatetime())
         if snapshot.get("status") != "ok":
+            print(f"[NSE PRE-MARKET] {minute_key}: {snapshot.get('status')} {snapshot.get('error', '')}")
             return
         rows = snapshot.get("rows", [])
         payload = [{
@@ -234,13 +235,15 @@ class ScannerWorker:
             "source_preopen": row.get("source_preopen"),
             "source_oi": row.get("source_oi"),
         } for row in rows]
-        if payload:
-            self.supabase._request(
-                "POST", "nse_premarket_study",
-                params={"on_conflict": "id"},
-                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
-                data=json.dumps(payload, default=str),
-            )
+        if not payload:
+            print(f"[NSE PRE-MARKET] {minute_key}: no usable pre-open rows; will retry next minute")
+            return
+        self.supabase._request(
+            "POST", "nse_premarket_study",
+            params={"on_conflict": "id"},
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            data=json.dumps(payload, default=str),
+        )
         self._premarket_snapshot_minute = minute_key
         print(f"[NSE PRE-MARKET] {snapshot['snapshot_time']}: preopen={snapshot.get('preopen_count', 0)} OI={snapshot.get('oi_count', 0)} stored={len(rows)}")
 
