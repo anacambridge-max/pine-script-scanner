@@ -146,9 +146,9 @@ class MorningHotScanner:
             exclusions = json.loads(exclusions_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             exclusions = {"results_dates": {}, "fo_ban_dates": {}}
-        date_key = analysis_date.isoformat()
-        results_today = set(exclusions.get("results_dates", {}).get(date_key, []))
-        fo_ban_today = set(exclusions.get("fo_ban_dates", {}).get(date_key, []))
+        filter_date = (scan_time.date().isoformat() if scan_time else date.today().isoformat())
+        results_today = set(exclusions.get("results_dates", {}).get(filter_date, []))
+        fo_ban_today = set(exclusions.get("fo_ban_dates", {}).get(filter_date, []))
         seen_store = SeenNewsStore()
         hot_rows: list[dict[str, Any]] = []
         technical_rows: list[dict[str, Any]] = []
