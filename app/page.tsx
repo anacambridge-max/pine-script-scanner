@@ -13,6 +13,16 @@ type HotStock = {
   reasons: string[]; setup: string | null;
 };
 
+type PreMarketRow = {
+  id: string; snapshot_time: string; symbol: string;
+  previous_close: number | null; indicative_price: number | null;
+  indicative_gap_pct: number | null; indicative_tradable_qty: number | null;
+  buy_qty: number | null; sell_qty: number | null; imbalance_qty: number | null;
+  oi_change_pct: number | null; oi_volume: number | null;
+  preopen_score: number; preopen_bias: string; reasons: string[];
+  source_preopen?: string; source_oi?: string;
+};
+
 type Signal = {
   id: string; symbol: string; instrument_key: string | null; signal_type: string;
   signal_state: string | null; score: number | null; grade: string | null;
@@ -37,6 +47,8 @@ export default function Home() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [hotStocks, setHotStocks] = useState<HotStock[]>([]);
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
+  const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
+  const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -54,6 +66,19 @@ export default function Home() {
       }
     } catch {
       // Morning hot stocks are supplemental; live confirmed signals remain independent.
+    }
+  }
+
+  async function loadPreMarketStudy() {
+    try {
+      const response = await fetch("/api/pre-market-study", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) {
+        setPreMarketRows(payload.rows ?? []);
+        setPreMarketSnapshotTime(payload.snapshot_time ?? null);
+      }
+    } catch {
+      // This optional pre-market panel must never affect confirmed signals.
     }
   }
 
@@ -75,11 +100,14 @@ export default function Home() {
   useEffect(() => {
     loadSignals();
     loadHotStocks();
+    loadPreMarketStudy();
     const timer = window.setInterval(loadSignals, 5000);
     const hotTimer = window.setInterval(loadHotStocks, 30000);
+    const preMarketTimer = window.setInterval(loadPreMarketStudy, 30000);
     return () => {
       window.clearInterval(timer);
       window.clearInterval(hotTimer);
+      window.clearInterval(preMarketTimer);
     };
   }, []);
 
@@ -331,6 +359,43 @@ export default function Home() {
                 <div className="watchScore">{row.score}</div>
               </div>
             ))}
+        </div>
+      </section>
+
+      <section className="watchlistWrap hotStocksWrap">
+        <div className="watchlistHead">
+          <div>
+            <strong>NSE PRE-MARKET STUDY · 09:00–09:08 IST</strong>
+            <span>
+              {preMarketSnapshotTime
+                ? `Latest NSE snapshot ${timeFmt(preMarketSnapshotTime)} IST · indicative pre-open demand/supply + OI spurts context`
+                : "Waiting for the next 09:00–09:08 IST snapshot · NSE indicative data only, not a BUY/SELL signal"}
+            </span>
+          </div>
+          <div className="watchlistBadge">{preMarketRows.length} symbols</div>
+        </div>
+        {preMarketRows.length === 0 ? <div className="watchEmpty">No saved NSE pre-market snapshot yet. The worker must be running during 09:00–09:08 IST and the Supabase migration must be applied.</div> :
+          <div className="tableScroll" style={{maxHeight: 360}}>
+            <table style={{minWidth: 1050}}>
+              <thead><tr><th>SYMBOL</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>PRE-OPEN BIAS</th><th className="right">SCORE</th><th>WHY</th></tr></thead>
+              <tbody>{preMarketRows.map((row) => (
+                <tr key={row.id}>
+                  <td className="symbol">{row.symbol}</td>
+                  <td className="right num">{row.indicative_gap_pct == null ? "—" : fmt(row.indicative_gap_pct) + "%"}</td>
+                  <td className="right num">{fmt(row.indicative_price)}</td>
+                  <td className="right num">{row.buy_qty == null ? "—" : Math.round(row.buy_qty).toLocaleString("en-IN")}</td>
+                  <td className="right num">{row.sell_qty == null ? "—" : Math.round(row.sell_qty).toLocaleString("en-IN")}</td>
+                  <td className="right num">{row.imbalance_qty == null ? "—" : Math.round(row.imbalance_qty).toLocaleString("en-IN")}</td>
+                  <td className="right num">{row.oi_change_pct == null ? "—" : fmt(row.oi_change_pct) + "%"}</td>
+                  <td><span className="setupBadge">{row.preopen_bias}</span></td>
+                  <td className="right"><span className={row.preopen_score >= 15 ? "score high" : row.preopen_score <= -15 ? "score low" : "score mid"}>{row.preopen_score}</span></td>
+                  <td>{(row.reasons ?? []).join(" · ") || "No directional order-book context"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
+        <div className="watchlistHead">
+          <span>Sources: <a href="https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market" target="_blank" rel="noreferrer">NSE Pre-Open Market</a> · <a href="https://www.nseindia.com/market-data/oi-spurts" target="_blank" rel="noreferrer">NSE OI Spurts</a>. OI change is contextual; it does not determine direction by itself.</span>
         </div>
       </section>
 
