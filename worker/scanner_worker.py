@@ -231,28 +231,31 @@ class ScannerWorker:
                 return
 
             analysis_date = max(available_dates)
-            rows = self.morning_hot_scanner.scan(
-                histories,
-                self.instrument_map,
-                self.company_map,
-                analysis_date,
-                news_items,
+            rows, technical_only = self.morning_hot_scanner.scan_all(
+                histories, self.instrument_map, self.company_map, analysis_date, news_items
             )
             count = self.supabase.write_morning_hot_stocks(rows)
-            if count:
+            technical_count = self.supabase.write_morning_technical_watch(technical_only)
+            # Persist local history even when Supabase has no qualified hot names.
+            try:
+                from worker.hot_stocks_history import HotStockHistory
+                history = HotStockHistory()
+                history.save(rows, analysis_date.isoformat(), "HOT")
+                history.save(technical_only, analysis_date.isoformat(), "TECHNICAL_ONLY")
+                history.export_csv()
+            except Exception as history_exc:
+                print(f"[MORNING HISTORY WARNING] {history_exc}")
+            if count or technical_count or not rows:
                 self._morning_hot_done.add(trade_date)
-                print(
-                    f"[MORNING] {today.isoformat()}: {count} HOT STOCKS stored "
-                    f"from completed {analysis_date.isoformat()} + Moneycontrol news"
-                )
-                for row in rows:
-                    print(
-                        f"[MORNING] {row['symbol']} score={row['score']} "
-                        f"technical={row['technical_score']} news={row['news_score']} "
-                        f"impact={row['news_impact']}"
-                    )
-            else:
-                print("[MORNING] No hot-stock rows generated")
+            print(
+                f"[MORNING] {today.isoformat()}: hot={count}, technical-only={technical_count}; "
+                f"completed session={analysis_date.isoformat()}, news items={len(news_items)}"
+            )
+            for row in rows:
+                print(f"[MORNING HOT] {row['symbol']} score={row['score']} tech={row['technical_score']} "
+                      f"news={row['news_score']} source={row.get('news_source')} published={row.get('published_ist')}")
+            for row in technical_only:
+                print(f"[MORNING TECH WATCH] {row['symbol']} tech={row['technical_score']}")
         except Exception as exc:
             print(f"[MORNING ERROR] {exc}")
             traceback.print_exc()
