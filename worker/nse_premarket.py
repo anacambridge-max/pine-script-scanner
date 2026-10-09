@@ -180,7 +180,10 @@ class NSEPreMarketStudy:
             db.execute("CREATE INDEX IF NOT EXISTS snapshots_symbol_time_idx ON snapshots(symbol, snapshot_time)")
 
     def collect(self, now: datetime | None = None) -> dict[str, Any]:
-        now = (now or datetime.now(IST)).astimezone(IST)
+        now = now or datetime.now(IST)
+        if now.tzinfo is None:
+            return {"status": "invalid_time", "snapshot_time": now.isoformat(), "rows": []}
+        now = now.astimezone(IST)
         try:
             from worker.hot_stocks_config import NSE_HOLIDAYS
         except Exception:
@@ -188,9 +191,14 @@ class NSEPreMarketStudy:
         if (now.weekday() >= 5 or now.date().isoformat() in NSE_HOLIDAYS
                 or not (WINDOW_START <= now.time().replace(tzinfo=None) <= WINDOW_END)):
             return {"status": "outside_window", "snapshot_time": now.isoformat(), "rows": []}
-        session = _nse_session()
-        preopen_payload = _get_json(session, PREOPEN_API)
-        oi_payload = _get_json(session, OI_SPURTS_API)
+        try:
+            session = _nse_session()
+            preopen_payload = _get_json(session, PREOPEN_API)
+            oi_payload = _get_json(session, OI_SPURTS_API)
+        except Exception as exc:
+            # A failed exchange fetch must remain retryable in the next minute.
+            return {"status": "unavailable", "snapshot_time": now.isoformat(),
+                    "rows": [], "error": f"{type(exc).__name__}: {exc}"}
         preopen_rows = [_flatten_preopen(x) for x in _rows(preopen_payload)]
         oi_rows = [_flatten_oi(x) for x in _rows(oi_payload)]
         oi_by_symbol: dict[str, dict[str, Any]] = {}
@@ -227,6 +235,9 @@ class NSEPreMarketStudy:
                     db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)",
                                (stamp, symbol, "oi_spurts", json.dumps(oi.get("raw", {}), ensure_ascii=False, default=str)))
         merged_rows.sort(key=lambda x: (abs(x["preopen_score"]), abs(x.get("indicative_gap_pct") or 0)), reverse=True)
+        if not preopen_rows:
+            return {"status": "empty", "snapshot_time": stamp, "rows": [],
+                    "preopen_count": 0, "oi_count": len(oi_rows)}
         return {"status": "ok", "snapshot_time": stamp, "rows": merged_rows[:200],
                 "preopen_count": len(preopen_rows), "oi_count": len(oi_rows)}
 
