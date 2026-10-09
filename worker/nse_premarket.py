@@ -87,20 +87,30 @@ def _rows(payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
 
 
 def _flatten_preopen(row: dict[str, Any]) -> dict[str, Any]:
-    # NSE currently nests the security fields under metadata and detail.
+    # NSE payloads nest fields differently across page/API versions. Flatten
+    # nested dicts recursively, while retaining scalar fields from the parent.
     merged: dict[str, Any] = {}
-    for key in ("metadata", "detail", "preOpenMarket", "marketData"):
-        value = row.get(key)
-        if isinstance(value, dict):
-            merged.update(value)
-    merged.update({k: v for k, v in row.items() if not isinstance(v, (dict, list))})
-    symbol = _pick(merged, "symbol", "identifier", "tradingSymbol")
-    prev_close = _number(_pick(merged, "previousClose", "prevClose", "previous_close", "closePrice"))
-    iep = _number(_pick(merged, "iep", "indicativeEquilibriumPrice", "indicativePrice", "finalPrice"))
-    tradable_qty = _number(_pick(merged, "finalQuantity", "totalTradedQuantity", "quantityTraded", "finalVolume"))
-    buy_qty = _number(_pick(merged, "totalBuyQuantity", "buyQuantity", "totalBuyQty"))
-    sell_qty = _number(_pick(merged, "totalSellQuantity", "sellQuantity", "totalSellQty"))
-    imbalance = _number(_pick(merged, "imbalanceQuantity", "indicativeImbalanceQuantity", "imbalanceQty"))
+
+    def visit(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            if isinstance(child, dict):
+                visit(child)
+            elif not isinstance(child, list):
+                # Prefer the first non-empty value for duplicate field names;
+                # top-level metadata should not be overwritten by blank nested values.
+                if key not in merged or merged[key] in (None, "", "-", "--"):
+                    merged[key] = child
+
+    visit(row)
+    symbol = _pick(merged, "symbol", "identifier", "tradingSymbol", "security")
+    prev_close = _number(_pick(merged, "previousClose", "prevClose", "previous_close", "closePrice", "prvClose"))
+    iep = _number(_pick(merged, "iep", "indicativeEquilibriumPrice", "indicativePrice", "finalPrice", "equilibriumPrice"))
+    tradable_qty = _number(_pick(merged, "finalQuantity", "totalTradedQuantity", "quantityTraded", "finalVolume", "indicativeTradableQuantity", "totalTradedVolume"))
+    buy_qty = _number(_pick(merged, "totalBuyQuantity", "buyQuantity", "totalBuyQty", "atoBuyQty", "atpBuyQty"))
+    sell_qty = _number(_pick(merged, "totalSellQuantity", "sellQuantity", "totalSellQty", "atoSellQty", "atpSellQty"))
+    imbalance = _number(_pick(merged, "imbalanceQuantity", "indicativeImbalanceQuantity", "imbalanceQty", "marketImbalance"))
     reported_change = _number(_pick(merged, "pChange", "changePercent", "percentChange"))
     gap_pct = reported_change
     if gap_pct is None and iep is not None and prev_close:
