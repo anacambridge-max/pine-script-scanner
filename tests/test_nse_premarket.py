@@ -220,3 +220,40 @@ def test_nse_403_three_failed_attempts_gracefully_skip(tmp_path, monkeypatch, ca
     assert len(sessions) == 3
     assert result["rows"] == []
     assert "graceful skip after attempt 3/3" in caplog.text
+
+
+def test_oi_spurt_symbols_are_retained_even_without_preopen_rows(tmp_path, monkeypatch):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    monkeypatch.setattr(
+        nse_premarket,
+        "_fetch_payloads_with_retry",
+        lambda: (
+            {"data": [{"metadata": {"symbol": "HAL", "previousClose": 100, "iep": 102}}]},
+            {"data": [{"symbol": "BEL", "changeInOIPercent": 12.5, "volume": 250000}]},
+        ),
+    )
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+    assert result["status"] == "ok"
+    by_symbol = {row["symbol"]: row for row in result["rows"]}
+    assert {"HAL", "BEL"} <= set(by_symbol)
+    assert by_symbol["BEL"]["oi_change_pct"] == 12.5
+    assert by_symbol["BEL"]["indicative_price"] is None
+    assert by_symbol["BEL"]["source_preopen"] is None
+    assert by_symbol["BEL"]["source_oi"] == nse_premarket.OI_PAGE
+    assert by_symbol["BEL"]["preopen_bias"] == "NEUTRAL / MIXED"
+
+
+def test_oi_only_payload_is_a_valid_pre_market_snapshot(tmp_path, monkeypatch):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    monkeypatch.setattr(
+        nse_premarket,
+        "_fetch_payloads_with_retry",
+        lambda: (
+            {"data": []},
+            {"data": [{"symbol": "BEL", "changeInOIPercent": 8.0, "volume": 1000}]},
+        ),
+    )
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+    assert result["status"] == "ok"
+    assert len(result["rows"]) == 1
+    assert result["rows"][0]["symbol"] == "BEL"
