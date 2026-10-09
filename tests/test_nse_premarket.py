@@ -257,3 +257,31 @@ def test_oi_only_payload_is_a_valid_pre_market_snapshot(tmp_path, monkeypatch):
     assert result["status"] == "ok"
     assert len(result["rows"]) == 1
     assert result["rows"][0]["symbol"] == "BEL"
+
+
+def test_oi_spurts_parses_pchange_in_oi_field():
+    parsed = nse_premarket._flatten_oi({
+        "symbol": "BEL",
+        "pchangeInOI": "12.5",
+        "volume": "250000",
+    })
+    assert parsed["oi_change_pct"] == 12.5
+    assert parsed["oi_volume"] == 250000
+
+
+def test_generic_price_pchange_is_not_used_as_oi_change():
+    parsed = nse_premarket._flatten_oi({
+        "symbol": "TCS",
+        "pChange": 2.4,
+        "volume": 5000,
+    })
+    assert parsed["oi_change_pct"] is None
+
+
+def test_oi_percentage_can_be_derived_from_current_and_previous_oi():
+    parsed = nse_premarket._flatten_oi({
+        "symbol": "HAL",
+        "latestOI": 1100,
+        "prevOI": 1000,
+    })
+    assert parsed["oi_change_pct"] == 10.0
