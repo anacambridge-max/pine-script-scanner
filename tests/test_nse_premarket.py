@@ -1,4 +1,6 @@
 from datetime import datetime
+
+import requests
 from zoneinfo import ZoneInfo
 
 from worker import nse_premarket
@@ -158,3 +160,63 @@ def test_collect_can_restrict_rows_to_fno_universe(tmp_path, monkeypatch):
     )
     assert result["status"] == "ok"
     assert [row["symbol"] for row in result["rows"]] == ["HAL"]
+
+
+def _http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"HTTP {status}", response=response)
+
+
+def test_nse_403_retries_with_fresh_session_then_succeeds(tmp_path, monkeypatch, caplog):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    sessions = []
+
+    def fresh_session():
+        session = object()
+        sessions.append(session)
+        return session
+
+    calls = {"count": 0}
+
+    def get_json(session, url):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise _http_error(403)
+        return {"data": []}
+
+    monkeypatch.setattr(nse_premarket, "_nse_session", fresh_session)
+    monkeypatch.setattr(nse_premarket, "_get_json", get_json)
+    monkeypatch.setattr(nse_premarket.time_module, "sleep", lambda _seconds: None)
+
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+
+    assert result["status"] == "empty"
+    assert len(sessions) == 2
+    assert sessions[0] is not sessions[1]
+    assert calls["count"] == 3
+    assert "retry 1/2" in caplog.text
+
+
+def test_nse_403_three_failed_attempts_gracefully_skip(tmp_path, monkeypatch, caplog):
+    study = nse_premarket.NSEPreMarketStudy(tmp_path / "nse.sqlite3")
+    sessions = []
+
+    def fresh_session():
+        session = object()
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(nse_premarket, "_nse_session", fresh_session)
+    monkeypatch.setattr(
+        nse_premarket, "_get_json",
+        lambda _session, _url: (_ for _ in ()).throw(_http_error(403)),
+    )
+    monkeypatch.setattr(nse_premarket.time_module, "sleep", lambda _seconds: None)
+
+    result = study.collect(datetime(2026, 10, 8, 9, 3, tzinfo=IST))
+
+    assert result["status"] == "unavailable"
+    assert len(sessions) == 3
+    assert result["rows"] == []
+    assert "graceful skip after attempt 3/3" in caplog.text
