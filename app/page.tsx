@@ -181,6 +181,24 @@ export default function Home() {
   }, [preMarketRows, hotStocks, technicalOnlyRows, signals]);
 
 
+  const preMarketConfirmedRows = useMemo(() => {
+    const premarketBySymbol = new Map<string, PreMarketRow>();
+    for (const row of preMarketRows) {
+      const symbol = String(row.symbol || "").trim().toUpperCase();
+      if (symbol && (row.source_preopen || row.source_oi) && !premarketBySymbol.has(symbol)) {
+        premarketBySymbol.set(symbol, row);
+      }
+    }
+    return signals
+      .filter(signal => signal.signal_state === "CONFIRMED")
+      .filter(signal => premarketBySymbol.has(String(signal.symbol || "").trim().toUpperCase()))
+      .map(signal => ({
+        signal,
+        premarket: premarketBySymbol.get(String(signal.symbol || "").trim().toUpperCase())!,
+      }))
+      .sort((a, b) => Number(b.signal.score || 0) - Number(a.signal.score || 0));
+  }, [preMarketRows, signals]);
+
   type SelectorRow = {
     signal: Signal;
     selectorScore: number;
@@ -429,6 +447,34 @@ export default function Home() {
         <div className="watchlistHead">
           <span>Sources: <a href="https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market" target="_blank" rel="noreferrer">NSE Pre-Open Market</a> · <a href="https://www.nseindia.com/market-data/oi-spurts" target="_blank" rel="noreferrer">NSE OI Spurts</a>. OI change is contextual; it does not determine direction by itself.</span>
         </div>
+      </section>
+
+      <section className="watchlistWrap hotStocksWrap">
+        <div className="watchlistHead">
+          <div>
+            <strong>NSE PRE-MARKET × CONFIRMED SIGNALS</strong>
+            <span>Only symbols present in the 09:00–09:08 NSE Pre-Open/OI study and also in the existing CONFIRMED signal feed. This is a comparison panel only; it does not create or alter signals.</span>
+          </div>
+          <div className="watchlistBadge">{preMarketConfirmedRows.length} matches</div>
+        </div>
+        {preMarketConfirmedRows.length === 0 ? <div className="watchEmpty">No common symbols yet. Matches appear when a saved NSE pre-market/OI symbol also has a CONFIRMED BUY or SELL signal.</div> :
+          <div className="tableScroll" style={{maxHeight: 320}}>
+            <table style={{minWidth: 1050}}>
+              <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th className="right">SIGNAL SCORE</th><th>SIGNAL TIME</th><th>PRE-MARKET BIAS</th><th className="right">INDICATIVE GAP</th><th className="right">OI CHANGE</th><th>PRE-MARKET CONTEXT</th></tr></thead>
+              <tbody>{preMarketConfirmedRows.map(({signal, premarket}) => (
+                <tr key={signal.id}>
+                  <td className="symbol">{signal.symbol}</td>
+                  <td><span className="setupBadge">{signal.signal_type}</span></td>
+                  <td className="right num">{fmt(signal.score)}</td>
+                  <td>{timeFmt(signal.signal_time)}</td>
+                  <td><span className="setupBadge">{premarket.preopen_bias || "NEUTRAL / MIXED"}</span></td>
+                  <td className="right num">{premarket.indicative_gap_pct == null ? "—" : fmt(premarket.indicative_gap_pct) + "%"}</td>
+                  <td className="right num">{premarket.oi_change_pct == null ? "—" : fmt(premarket.oi_change_pct) + "%"}</td>
+                  <td>{(premarket.reasons ?? []).join(" · ") || "NSE source match"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
       </section>
 
       <section className="watchlistWrap hotStocksWrap">
