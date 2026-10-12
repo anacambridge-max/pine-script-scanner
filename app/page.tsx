@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from "react";
+import { DailyContext, MarketContextRow, MovementEvidence, sectorSupport, confirmedPatternHint } from "./lib/market-context";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -35,7 +36,7 @@ type Signal = {
   vwap_status: string | null; rvol: number | null; volume_grade: string | null;
   breakout_level: number | null; fo_confirmation: string | null;
   is_active: boolean | null; signal_time: string | null; last_updated: string | null;
-  metadata?: { timeframe?: string; company_name?: string; sector?: string; sector_change_percent?: number; sector_rank?: number; sector_rank_type?: string; score_breakdown?: Record<string, unknown>; outcome?: {version?:number} };
+  metadata?: { timeframe?: string; company_name?: string; sector?: string; sector_change_percent?: number; sector_rank?: number; sector_rank_type?: string; score_breakdown?: Record<string, unknown>; outcome?: {version?:number}; daily_context?: DailyContext; movement_evidence?: MovementEvidence; opening_candle?: {is_opening?: boolean}; full_result?: {timestamp?: string; body_ratio?: number; close_location?: number; range_expansion?: number} };
 };
 
 const fmt = (value: number | null, digits = 2) =>
@@ -50,9 +51,36 @@ const signalClock = (signal: Signal) =>
 export default function Home() {
   type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [marketContext, setMarketContext] = useState<MarketContextRow[]>([]);
+  const [contextError, setContextError] = useState("");
+  const contextBySymbol = useMemo(() => new Map(marketContext.map(row => [row.symbol, row])), [marketContext]);
+  const sectorBadge = (symbol: string, direction: string) => {
+    const context = contextBySymbol.get(symbol)?.sector_context;
+    const support = sectorSupport(context, direction);
+    return <small className={support.bonus ? "sectorSupport supported" : "sectorSupport"} title={context?.sector_observed_at ? `Sector snapshot ${timeFmt(context.sector_observed_at)} IST` : ""}>{support.label}</small>;
+  };
+  const patternBadge = (signal: Signal) => {
+    const hint = confirmedPatternHint(signal, contextBySymbol.get(signal.symbol)?.daily_context);
+    return <>{hint.labels.length > 0 && <small className="sectorSupport">{hint.labels.join(" · ")}</small>}{hint.label && <small className="sectorSupport supported" title={hint.reason ?? ""}>{hint.label}</small>}{hint.label && hint.supporting.length > 0 && <small className="sectorSupport">{hint.supporting.join(" · ")}</small>}</>;
+  };
+  async function loadMarketContext() {
+    try {
+      const response = await fetch("/api/market-context", {cache: "no-store"});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Market context unavailable");
+      setMarketContext(payload.rows ?? []);
+      setContextError("");
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : "Market context could not refresh");
+      setMarketContext([]);
+    }
+  }
   const [hotStocks, setHotStocks] = useState<HotStock[]>([]);
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
+  const rankedPreMarketRows = [...preMarketRows].sort((a,b) =>
+    (b.movement_score * 0.9 + sectorSupport(contextBySymbol.get(b.symbol)?.sector_context, b.movement_direction).bonus) -
+    (a.movement_score * 0.9 + sectorSupport(contextBySymbol.get(a.symbol)?.sector_context, a.movement_direction).bonus));
   const [preMarketSourceCount, setPreMarketSourceCount] = useState(0);
   const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
   const [preMarketSnapshotCount, setPreMarketSnapshotCount] = useState(0);
@@ -144,17 +172,20 @@ export default function Home() {
     loadHealth();
     loadHotStocks();
     loadPreMarketStudy();
+    loadMarketContext();
     loadPerformance();
     const timer = window.setInterval(loadSignals, 5000);
     const healthTimer = window.setInterval(loadHealth, 15000);
     const hotTimer = window.setInterval(loadHotStocks, 30000);
     const preMarketTimer = window.setInterval(loadPreMarketStudy, 30000);
+    const contextTimer = window.setInterval(loadMarketContext, 30000);
     const performanceTimer = window.setInterval(loadPerformance, 60000);
     return () => {
       window.clearInterval(timer);
       window.clearInterval(healthTimer);
       window.clearInterval(hotTimer);
       window.clearInterval(preMarketTimer);
+      window.clearInterval(contextTimer);
       window.clearInterval(performanceTimer);
     };
   }, []);
@@ -260,9 +291,9 @@ export default function Home() {
   };
 
   const buildSelectorRow = (signal: Signal): SelectorRow => {
-    // TOP INTRADAY is deliberately sector-neutral.
+    // Remove the sector bonus already included in Prime before weighting it once.
     // The stored Prime score can include a 10-point sector bonus, so remove
-    // that bonus before ranking. Sector remains visible only in the table.
+    // that bonus before ranking, then apply current sector support once.
     const rankType = signal.metadata?.sector_rank_type ?? "";
     const sectorBonus = rankType === "TOP 3 GAINER" || rankType === "TOP 3 LOSER" ? 10 : 0;
     const corePrime = Math.max(0, Math.min(100, Number(signal.score || 0) - sectorBonus));
@@ -273,17 +304,19 @@ export default function Home() {
     const rrScore = Math.min(100, Math.max(0, (rr / 2) * 100));
 
     // Second-stage selector ranks only already-confirmed signals.
-    // Sector rank/change is intentionally NOT part of the score.
+    // Fresh, directional sector support contributes ten points.
+    const support = sectorSupport(contextBySymbol.get(signal.symbol)?.sector_context, signal.signal_type);
     const selectorScore = Math.round(
-      corePrime * 0.65 +
+      corePrime * 0.55 +
       rvolScore * 0.20 +
-      rrScore * 0.15
+      rrScore * 0.15 + support.bonus
     );
 
     const reasons: string[] = [
       "Core " + Math.round(corePrime),
       "RVOL " + fmt(signal.rvol) + "×",
       "R:R " + fmt(signal.risk_reward),
+      ...(support.bonus ? [support.label] : []),
     ];
     return { signal, selectorScore, reasons };
   };
@@ -344,8 +377,8 @@ export default function Home() {
       <section className="desk" aria-label="Scanner decision overview">
         <div className="deskHead"><div><span className="deskKicker">TODAY AT A GLANCE</span><h2>Movement watch & confirmations</h2><p>Pre-market rows are watch candidates. Only a completed 3-minute break is a confirmed signal.</p></div><div className={health.status === "LIVE" ? "statusChip live" : "statusChip"}>{health.status === "LIVE" ? "● LIVE WORKER" : "● WORKER " + health.status}<small>Heartbeat {timeFmt(health.last_run_at)} IST</small></div></div>
         <div className="deskGrid">
-          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? preMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b><small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
-          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b><small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? rankedPreMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b>{sectorBadge(row.symbol, row.movement_direction)}<small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}<small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
         </div>
       </section>
 
@@ -366,6 +399,11 @@ export default function Home() {
       {error && <div className="error" role="alert">{error} · Displayed signals may be stale.</div>}
       {hotError && <div className="error" role="alert">{hotError}</div>}
       {preMarketError && <div className="error" role="alert">{preMarketError}</div>}
+      {contextError && <div className="error" role="alert">{contextError}</div>}
+
+
+
+
 
       <section className="selectorWrap">
         <div className="selectorHead">
@@ -373,7 +411,7 @@ export default function Home() {
             <strong>INTRADAY TRADE SELECTOR</strong>
             <span>Second-stage ranking of confirmed signals · does not create new signals</span>
           </div>
-          <div className="selectorNote">Core setup 65% · RVOL 20% · R:R 15% · Sector 0%</div>
+          <div className="selectorNote">Core setup 55% · RVOL 20% · R:R 15% · Sector alignment 10%</div>
         </div>
 
         <div className="selectorGrid">
@@ -385,6 +423,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -401,6 +440,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -492,9 +532,9 @@ export default function Home() {
           <div className="tableScroll" style={{maxHeight: 360}}>
             <table style={{minWidth: 1050}}>
               <thead><tr><th>SYMBOL</th><th>DIRECTION</th><th className="right">WATCH SCORE</th><th className="right">CONSISTENCY</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>FRESH NEWS, IF AVAILABLE</th></tr></thead>
-              <tbody>{preMarketRows.map((row) => (
+              <tbody>{rankedPreMarketRows.map((row) => (
                 <tr key={row.id}>
-                  <td className="symbol">{row.symbol}</td>
+                  <td className="symbol">{row.symbol}{sectorBadge(row.symbol, row.movement_direction)}</td>
                   <td><span className="setupBadge">{row.movement_direction}</span></td>
                   <td className="right num">{row.movement_score}</td>
                   <td className="right num">{row.aligned_snapshots}/3 · {row.observed_snapshots} total</td>
@@ -530,7 +570,7 @@ export default function Home() {
               <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th className="right">SIGNAL SCORE</th><th>SIGNAL TIME</th><th>PRE-MARKET BIAS</th><th className="right">INDICATIVE GAP</th><th className="right">OI CHANGE</th><th>PRE-MARKET CONTEXT</th></tr></thead>
               <tbody>{preMarketConfirmedRows.map(({signal, premarket}) => (
                 <tr key={signal.id}>
-                  <td className="symbol">{signal.symbol}</td>
+                  <td className="symbol">{signal.symbol}{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}</td>
                   <td><span className="setupBadge">{signal.signal_type}</span></td>
                   <td className="right num">{fmt(signal.score)}</td>
                   <td>{signalClock(signal)}</td>
@@ -594,7 +634,7 @@ export default function Home() {
                  const score = Number(signal.score ?? 0);
                  return <tr key={signal.id}>
                    <td className="timeCell">{signalClock(signal)}</td>
-                   <td className="symbol"><div>{signal.symbol}</div><small>{signal.metadata?.company_name ?? signal.symbol}</small></td>
+                   <td className="symbol"><div>{signal.symbol}</div>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}<small>{signal.metadata?.company_name ?? signal.symbol}</small></td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
                    <td><span className="tfBadge">{tf}M</span></td>
                    <td className="right"><span className={score >= 80 ? "score high" : score >= 65 ? "score mid" : "score low"}>{score}</span></td>
@@ -616,6 +656,15 @@ export default function Home() {
       <footer><span>Prime Scanner · NSE F&O universe · 3-minute engine</span><span>{lastRefresh ? "Updated " + lastRefresh.toLocaleTimeString("en-IN") : "Connecting…"}</span></footer>
 
       <style jsx>{`
+        .contextGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; padding:16px; max-height:620px; overflow:auto; }
+        .contextCard { padding:15px; background:#0b1626; border:1px solid #29415d; border-radius:12px; margin-bottom:12px; min-width:0; }
+        .contextTitle { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px; }
+        .contextTitle strong { font-size:15px; color:#e6efff; } .contextTitle span { color:#82d7c0; font-size:11px; }
+        .contextCard p { font-size:11px; color:#a6b8d1; line-height:1.6; margin:8px 0; } .contextCard small { font-size:10px; color:#8eabc5; }
+        .contextTags { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; } .contextTags b,.contextTags>span { border:1px solid #2c4763; background:#12263a; padding:5px 7px; border-radius:5px; color:#b9d7ed; font-size:10px; }
+        .sectorSupport { display:block; font-size:10px; margin-top:5px; color:#8da0b9; } .sectorSupport.supported { color:#f5ce79; font-weight:800; padding:4px 7px; border:1px solid #6a562c; border-radius:5px; background:#302719; width:fit-content; }
+        .contextNews a { display:block; margin:8px 0; font-size:11px; line-height:1.5; color:#88c9f5; } .contextNews small { display:block; }
+        @media(max-width:700px) { .contextGrid {grid-template-columns:1fr;} }
         .desk,.evidence,.detailGroup { max-width:1680px; margin:0 auto 14px; border:1px solid #24364d; border-radius:16px; background:#0c1624; overflow:hidden; }
         .desk { padding:18px; background:linear-gradient(140deg,#10213a,#0b1523 50%,#10192a); }
         .deskHead { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:16px; }

@@ -149,3 +149,56 @@ test('movement watch requires repeated aligned gap and liquid order pressure', (
   assert.equal(selected.find(row => row.symbol === 'UP').movement_direction, 'UP WATCH');
   assert.equal(selected.find(row => row.symbol === 'DOWN').movement_direction, 'DOWN WATCH');
 });
+
+test('sector support ranks gainers and losers separately and rejects stale context', () => {
+  const { sectorSupport, isOpeningSignal } = require('../app/lib/market-context.ts');
+  const now = new Date('2026-10-12T10:00:00+05:30');
+  const context = {sector:'MEDIA', sector_change:-2, sector_gainer_rank:12, sector_loser_rank:1,
+    sector_observed_at:'2026-10-12T09:59:00+05:30', sector_fresh:true};
+  assert.equal(sectorSupport(context, 'SELL', now).bonus, 10);
+  assert.equal(sectorSupport(context, 'BUY', now).bonus, 0);
+  assert.equal(sectorSupport({...context, sector_observed_at:'2026-10-12T09:50:00+05:30'}, 'SELL', now).bonus, 0);
+  assert.equal(sectorSupport({...context, sector_observed_at:'2026-10-09T09:59:00+05:30'}, 'SELL', now).bonus, 0);
+  assert.equal(sectorSupport({...context, sector_change:3,sector_gainer_rank:1}, 'UP WATCH', now).bonus, 10);
+  assert.equal(isOpeningSignal({full_result:{timestamp:'2026-10-12T09:15:00+05:30'}}, '2026-10-12T09:18:01+05:30'), true);
+  assert.equal(isOpeningSignal({opening_candle:{is_opening:false}}, '2026-10-12T09:15:00+05:30'), false);
+});
+
+test('market context filters today and returns usable evidence shape', async () => {
+  const previous = global.fetch;
+  const oldBase = process.env.SUPABASE_URL;
+  const oldKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  try {
+    global.fetch = async url => {
+      const query = new URL(url);
+      assert.equal(query.pathname, '/rest/v1/scanner_market_context');
+      assert.equal(query.searchParams.get('trade_date'), 'eq.' + new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Kolkata'}).format(new Date()));
+      return Response.json([{symbol:'TEST', daily_context:{nr7:true}, sector_context:{}, market_evidence:{}}]);
+    };
+    const response = await route('market-context').GET();
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).rows[0].daily_context.nr7, true);
+    global.fetch = async () => new Response('unavailable', {status:503});
+    assert.equal((await route('market-context').GET()).status, 503);
+  } finally {
+    global.fetch = previous;
+    if (oldBase === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldBase;
+    if (oldKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = oldKey;
+  }
+});
+
+test('confirmed movement tags require full daily boundary and never use later OI/news', () => {
+  const {confirmedPatternHint} = require('../app/lib/market-context.ts');
+  const signal = {signal_state:'CONFIRMED',signal_type:'BUY',entry:105,rvol:3,metadata:{daily_context:{status:'READY',nr7:true,nr4:true,compression:true,pdh:104,pdl:99,trend:'DOWNTREND'},full_result:{body_ratio:.8,close_location:.9}}};
+  assert.equal(confirmedPatternHint(signal).label,'Potential Top Gainer');
+  assert.equal(confirmedPatternHint({...signal,entry:103}).label,null);
+  assert.equal(confirmedPatternHint({...signal,signal_state:'WATCH'}).label,null);
+  assert.equal(confirmedPatternHint({...signal,metadata:{...signal.metadata,full_result:{body_ratio:1.2,close_location:.9}}}).label,null);
+  const evidence={confirmed_at:'2026-10-12T09:18:00+05:30',observed_at:'2026-10-12T15:30:00+05:30',oi:{label:'SHORT COVERING'},news:[{published_at:'2026-10-12T12:00:00+05:30',impact:'BULLISH MENTION',title:'later news'}]};
+  assert.deepEqual(confirmedPatternHint({...signal,metadata:{...signal.metadata,movement_evidence:evidence}}).supporting,[]);
+  evidence.observed_at='2026-10-12T09:17:00+05:30';
+  assert.deepEqual(confirmedPatternHint({...signal,metadata:{...signal.metadata,movement_evidence:evidence}}).supporting,['SHORT COVERING']);
+  assert.equal(confirmedPatternHint({...signal,signal_type:'SELL',entry:98}).label,'Potential Top Loser');
+});

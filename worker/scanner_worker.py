@@ -21,6 +21,7 @@ from worker.sector_ranker import SectorRanker
 from worker.telegram import send_confirmed
 from worker.upstox_feed import UpstoxV3Feed
 from worker.outcomes import OutcomeMonitor
+from worker.market_context import MarketContext
 
 
 class ScannerWorker:
@@ -54,6 +55,7 @@ class ScannerWorker:
         self._daily_history_cache: dict[str, dict[str, pd.DataFrame]] = {}
         self.feed = self._new_feed()
         self.outcomes = OutcomeMonitor(self.supabase, self.feed)
+        self.market_context = MarketContext(self)
         self.running = True
         self.captured_count = 0
         self.last_heartbeat = 0.0
@@ -148,6 +150,10 @@ class ScannerWorker:
         # A one-shot startup call can miss the valid news window entirely.
         while self.running:
             try:
+                self.market_context.refresh()
+            except Exception as exc:
+                print(f"[MARKET CONTEXT WARNING] {type(exc).__name__}: {exc}")
+            try:
                 self._run_morning_hot_scan()
             except Exception as exc:
                 print(f"[MORNING LOOP WARNING] {exc}")
@@ -196,8 +202,10 @@ class ScannerWorker:
             try:
                 # Evaluate the trading signal FIRST. Sector data is optional
                 # scoring context and must never block or delay the live scanner.
+                context_service = getattr(self, "market_context", None)
+                daily = context_service.daily.get(instrument_key) if context_service else None
                 result: dict[str, Any] = self.engine.evaluate(
-                    frame, timeframe, context=None
+                    frame, timeframe, context={"daily_context": daily} if daily else None
                 )
 
                 # Only fetch sector data after a real confirmed signal exists.
@@ -212,7 +220,7 @@ class ScannerWorker:
                             symbol, result.get("direction", "")
                         )
                         result = self.engine.evaluate(
-                            frame, timeframe, context=sector_context
+                            frame, timeframe, context={**sector_context, "daily_context": daily}
                         )
                         result.update(sector_context)
                         result["sector_change_percent"] = sector_context.get("sector_change")
@@ -231,6 +239,26 @@ class ScannerWorker:
                 and result.get("direction") in {"BUY", "SELL"}
             ):
                 try:
+                    context_service = getattr(self, "market_context", None)
+                    daily = context_service.daily.get(instrument_key) if context_service else None
+                    result["daily_context"] = daily or {"status": "PENDING"}
+                    snapshot = getattr(context_service, "latest_rows", {}).get(instrument_key)
+                    if snapshot:
+                        observed = pd.Timestamp(snapshot["observed_at"])
+                        if 0 <= (now - observed).total_seconds() <= 180:
+                            result["movement_evidence"] = {
+                                "confirmed_at": now.isoformat(),
+                                "observed_at": snapshot["observed_at"],
+                                "oi": snapshot["market_evidence"]["oi"],
+                                "news": snapshot["market_evidence"]["news"],
+                            }
+                    candle_ts = pd.Timestamp(result["timestamp"])
+                    result["opening_candle"] = {
+                        "is_opening": candle_ts.hour == 9 and candle_ts.minute == 15 and timeframe == 3,
+                        "body_ratio": result.get("body_ratio"), "close_location": result.get("close_location"),
+                        "range_expansion": result.get("range_expansion"),
+                        "volume_multiple": result.get("volume_multiple"),
+                    }
                     company_name = self.company_map.get(instrument_key, symbol)
                     inserted = self.supabase.write_signal(
                         result, instrument_key, symbol, company_name
@@ -355,12 +383,12 @@ class ScannerWorker:
             # inside the pre-open window. This prevents later 09:15+ headlines
             # from leaking into a morning scan if the data fetch takes time.
             print(f"[MORNING] Fetching Moneycontrol catalysts for {today.isoformat()}...")
-            news_items = fetch_moneycontrol_news(max_items=40)
+            news_items = fetch_moneycontrol_news(max_items=80, timestamped_only=True)
             print(f"[MORNING] Moneycontrol headlines loaded: {len(news_items)}")
 
             # Use compact daily candles for the pre-open technical scan. The
             # heavy 1-minute seed is reserved for the live 3M engine.
-            histories = self.feed.get_daily_histories(lookback_days=60)
+            histories = self.market_context.histories if self.market_context.day == trade_date else self.feed.get_daily_histories(lookback_days=60)
             available_dates: list[Any] = []
             for frame in histories.values():
                 if frame.empty:

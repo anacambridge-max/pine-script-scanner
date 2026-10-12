@@ -7,6 +7,8 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 from typing import Any
 
 import requests
@@ -151,6 +153,8 @@ class SectorRanker:
         self._sector_change: dict[str, float] = {}
         self._sector_display: dict[str, str] = {}
         self._sector_rank: dict[str, int] = {}
+        self._sector_loser_rank: dict[str, int] = {}
+        self._quote_time: float = 0.0
         self._symbol_sector: dict[str, str] = {}
         self._sector_keys: dict[str, str] = {}
         self._session = requests.Session()
@@ -231,6 +235,28 @@ class SectorRanker:
                 except Exception:
                     continue
             if not ok:
+                # Download names change. Discover the official constituent
+                # link from the sector page rather than guessing filenames.
+                try:
+                    page = self._session.get(f"{NIFTY_BASE}/indices/equity/sectoral-indices/{SECTOR_PAGES[sector]}", timeout=8)
+                    page.raise_for_status()
+                    links = re.findall(r'href=[\"\']([^\"\']+\.csv(?:\?[^\"\']*)?)[\"\']', page.text, re.I)
+                    for link in links:
+                        url = urljoin(NIFTY_BASE, link)
+                        if urlparse(url).hostname not in {"www.niftyindices.com", "niftyindices.com"}:
+                            continue
+                        response = self._session.get(url, timeout=8)
+                        response.raise_for_status()
+                        symbols = self._csv_symbols(response.content)
+                        if symbols:
+                            for symbol in symbols:
+                                mapping.setdefault(symbol, sector)
+                            loaded += 1
+                            ok = True
+                            break
+                except Exception:
+                    pass
+            if not ok:
                 print(f"[SECTOR] constituent CSV unavailable: {sector}")
         return mapping, loaded
 
@@ -248,6 +274,9 @@ class SectorRanker:
             # If Nifty Indices is temporarily unavailable, retain the previous
             # successful mapping instead of replacing it with an empty map.
             if mapping:
+                # Retain verified membership in sectors a partial refresh
+                # could not fetch; never delete it because one source failed.
+                mapping = {**self._symbol_sector, **mapping}
                 self._symbol_sector = mapping
                 print(
                     f"[SECTOR] membership map loaded: {len(mapping)} stocks "
@@ -267,6 +296,8 @@ class SectorRanker:
         self._sector_change = changes
         self._sector_display = {name: name for name in changes}
         self._sector_rank = {name: index + 1 for index, (name, _) in enumerate(ranked)}
+        self._sector_loser_rank = {name: index + 1 for index, (name, _) in enumerate(reversed(ranked))}
+        self._quote_time = time.time()
         print(
             f"[SECTOR] live refresh {len(changes)} indices; "
             f"top={ranked[:3]} bottom={ranked[-3:]}"
@@ -348,10 +379,11 @@ class SectorRanker:
         self.refresh()
         sector = self._symbol_sector.get(str(symbol or "").strip().upper())
         change = self._sector_change.get(sector) if sector else None
-        rank = self._sector_rank.get(sector) if sector else None
+        # SELL ranks from the weakest sector, BUY from the strongest.
+        rank = (self._sector_loser_rank if direction == "SELL" else self._sector_rank).get(sector) if sector else None
         bonus = 0
         rank_type = None
-        if rank is not None and rank <= 3 and change is not None:
+        if rank is not None and rank <= 3 and change is not None and self._quote_time and time.time() - self._quote_time <= 180:
             if direction == "BUY" and change > 0:
                 bonus = 10
                 rank_type = "TOP 3 GAINER"
@@ -364,4 +396,13 @@ class SectorRanker:
             "sector_rank": rank,
             "sector_rank_type": rank_type,
             "sector_bonus": bonus,
+            "sector_gainer_rank": self._sector_rank.get(sector) if sector else None,
+            "sector_loser_rank": self._sector_loser_rank.get(sector) if sector else None,
+            "sector_observed_at": pd_timestamp(self._quote_time),
+            "sector_fresh": bool(self._quote_time and time.time() - self._quote_time <= 180),
         }
+
+
+def pd_timestamp(epoch: float) -> str | None:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat() if epoch else None

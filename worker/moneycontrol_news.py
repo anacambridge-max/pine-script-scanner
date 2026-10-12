@@ -129,7 +129,7 @@ def _impact(text: str) -> str:
     return "NEWS"
 
 
-def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
+def fetch_moneycontrol_news(max_items: int = 60, timestamped_only: bool = False) -> list[NewsItem]:
     """Fetch current Moneycontrol stock-watch/news headlines for the morning scan.
 
     The scanner treats Moneycontrol as a catalyst source, not as a trading signal.
@@ -137,7 +137,10 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
     seen: set[str] = set()
     items: list[NewsItem] = []
 
-    for source in MONEYCONTROL_SOURCES + OTHER_MARKET_SOURCES:
+    sources = MONEYCONTROL_SOURCES + OTHER_MARKET_SOURCES
+    if timestamped_only:
+        sources = tuple(source for source in sources if "rss" in source.lower())
+    for source in sources:
         try:
             raw_html = _fetch(source)
             # Parse RSS/Atom timestamps before falling back to HTML link scraping.
@@ -190,6 +193,8 @@ def fetch_moneycontrol_news(max_items: int = 60) -> list[NewsItem]:
                     continue
                 except ET.ParseError:
                     pass
+            if timestamped_only:
+                continue
             parser = _LinkParser()
             parser.feed(raw_html)
 

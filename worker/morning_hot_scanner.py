@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 from typing import Any
 
@@ -99,7 +99,26 @@ class MorningHotScanner:
             + weights["move"] * move_score
         )
 
+        # A quiet compression day can precede a large move. Do not require
+        # yesterday to have already rallied on extreme volume to watch it.
+        from engine.daily_context import daily_context
+        pattern = daily_context(daily, (analysis_date + timedelta(days=1)).isoformat())
+        pattern_score = 0
+        if pattern.get("compression"):
+            pattern_score = (
+                (40 if pattern.get("nr7") else 32 if pattern.get("nr4") else 25)
+                + (12 if pattern.get("inside_day") else 0)
+                + (10 if pattern.get("narrow_pd") else 0)
+                + (10 if min(high_distance, low_distance) <= 2 else 0)
+                + (8 if pattern.get("trend") in {"UPTREND", "DOWNTREND"} else 0)
+            )
+        technical = max(technical, pattern_score)
+
         reasons: list[str] = []
+        if pattern_score:
+            reasons.extend(pattern.get("labels", []))
+            reasons.append(f"Conditional expansion watch: above PDH {high:.2f} / below PDL {low:.2f}")
+            reasons.append("Opening 3M close + at least 2x opening volume required; pre-open watch is not a signal")
         if abs(change_pct) >= 2:
             reasons.append(f"D-1 move {change_pct:+.2f}%")
         if volume_multiple >= 1.5:
@@ -126,6 +145,7 @@ class MorningHotScanner:
             "high_distance": high_distance,
             "low_distance": low_distance,
             "reasons": reasons,
+            "pattern_score": pattern_score,
         }
 
     def scan_all(

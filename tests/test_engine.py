@@ -36,3 +36,11 @@ def test_grade_mapping():
     e = PrimeEngine(PrimeConfig(allow_1m=True))
     result = e.evaluate(make_data(), 1)
     assert result["grade"] in {"—","WEAK","WATCH","GOOD","STRONG","PRIME A","PRIME A+"}
+
+def test_complete_daily_extrema_override_partial_minute_boundaries():
+    frame = make_data()
+    frame.loc[len(frame)] = [pd.Timestamp("2026-09-21 09:15", tz="Asia/Kolkata"), 102, 103, 101, 102.5, 1000]
+    context = {"daily_context": {"status": "READY", "analysis_date": "2026-09-18", "pdh": 110, "pdl": 95}}
+    levels = PrimeEngine()._levels(frame, context)
+    assert levels["pdh"] == 110
+    assert levels["pdl"] == 95

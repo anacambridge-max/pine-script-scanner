@@ -139,6 +139,9 @@ class SupabaseStore:
                 "sector_change_percent": result.get("sector_change_percent"),
                 "sector_rank": result.get("sector_rank"),
                 "sector_rank_type": result.get("sector_rank_type"),
+                "daily_context": result.get("daily_context"),
+                "opening_candle": result.get("opening_candle"),
+                "movement_evidence": result.get("movement_evidence"),
             },
         }
         row = _json_safe(row)
@@ -154,6 +157,13 @@ class SupabaseStore:
             data=json.dumps(row, default=str, allow_nan=False),
         )
         return True
+
+    def write_market_context(self, rows: list[dict[str, Any]]) -> None:
+        if rows:
+            self._request("POST", "scanner_market_context",
+                params={"on_conflict": "trade_date,symbol"},
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                data=json.dumps(_json_safe(rows), default=str, allow_nan=False))
 
     def write_next_day_watchlist(self, rows: list[dict[str, Any]], instrument_lookup: dict[str, str]) -> int:
         if not rows:

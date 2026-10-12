@@ -99,6 +99,14 @@ class PrimeEngine:
             pdh = math.nan
             pdl = math.nan
 
+        # Prefer complete daily extrema when the daily context matches the
+        # previous session seeded by the live history. Partial minute history
+        # must not shrink the breakout boundary.
+        daily = (context or {}).get("daily_context") if isinstance(context, dict) else None
+        if daily and daily.get("status") == "READY" and daily.get("analysis_date") == str(previous_trading_day):
+            pdh = float(daily["pdh"])
+            pdl = float(daily["pdl"])
+
         # Use timezone-naive local timestamps for calendar grouping/comparison.
         # This avoids pandas PeriodArray timezone warnings/errors on recent pandas.
         local_ts = x["timestamp"].dt.tz_localize(None)
