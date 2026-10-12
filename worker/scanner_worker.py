@@ -20,6 +20,7 @@ from worker.supabase_store import SupabaseStore
 from worker.sector_ranker import SectorRanker
 from worker.telegram import send_confirmed
 from worker.upstox_feed import UpstoxV3Feed
+from worker.outcomes import OutcomeMonitor
 
 
 class ScannerWorker:
@@ -52,6 +53,7 @@ class ScannerWorker:
         self._next_day_done: set[str] = set()
         self._daily_history_cache: dict[str, dict[str, pd.DataFrame]] = {}
         self.feed = self._new_feed()
+        self.outcomes = OutcomeMonitor(self.supabase, self.feed)
         self.running = True
         self.captured_count = 0
         self.last_heartbeat = 0.0
@@ -234,6 +236,7 @@ class ScannerWorker:
                         result, instrument_key, symbol, company_name
                     )
                     if inserted:
+                        self.outcomes.register_new(result, instrument_key, symbol)
                         send_confirmed({**result, "symbol": symbol, "company_name": company_name})
                         self.captured_count += 1
                         print(
@@ -560,12 +563,7 @@ class ScannerWorker:
         signal.signal(signal.SIGTERM, self.stop)
 
         self._heartbeat("STARTING")
-        try:
-            deleted = self.supabase.delete_previous_days()
-            if deleted:
-                print(f"[CLEANUP] Removed {deleted} previous-day scanner signals")
-        except Exception as exc:
-            print(f"[CLEANUP ERROR] {exc}")
+        # Preserve prior sessions for prospective outcome measurement.
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
             name="scanner-heartbeat",
@@ -613,6 +611,7 @@ class ScannerWorker:
             if existing_signals:
                 print(f"[SECTOR] Backfilling {len(existing_signals)} today's confirmed signals...")
                 for signal_row in existing_signals:
+                    self.outcomes.register(signal_row)
                     try:
                         symbol = str(signal_row.get("symbol") or "")
                         direction = str(signal_row.get("signal_type") or "")
@@ -663,6 +662,8 @@ class ScannerWorker:
         except Exception as exc:
             print(f"[SECTOR BACKFILL ERROR] {exc}")
 
+        threading.Thread(target=self._outcome_loop, name="signal-outcomes", daemon=True).start()
+
         reconnect_delay = 20
 
         while self.running:
@@ -699,6 +700,19 @@ class ScannerWorker:
                 if self.running:
                     self.feed.rebuild_streamer()
                 reconnect_delay = min(reconnect_delay + 10, 60)
+
+    def _outcome_loop(self) -> None:
+        while self.running:
+            try:
+                updated = self.outcomes.tick()
+                if updated:
+                    print(f"[OUTCOME] Updated {updated} signal observations")
+            except Exception as exc:
+                print(f"[OUTCOME WARNING] {exc}")
+            for _ in range(30):
+                if not self.running:
+                    return
+                time.sleep(1)
 
 
 if __name__ == "__main__":

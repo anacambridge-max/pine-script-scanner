@@ -46,6 +46,28 @@ test('signal query keeps both IST bounds and confirmed 3m filters', async () => 
   }
 });
 
+test('performance excludes untracked history and preserves ambiguous hits', async () => {
+  const previous = global.fetch;
+  const oldBase = process.env.SUPABASE_URL;
+  const oldKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  const outcome = (first_hit, value) => ({ score: 85, signal_time: '2026-10-12T09:18:00+05:30', metadata: { outcome: { version: 1, status: 'COMPLETE', first_hit, returns_pct: { '15': value, '30': value, '60': value } } } });
+  try {
+    global.fetch = async () => Response.json([outcome('TARGET', 1), outcome('STOP', -1), outcome('AMBIGUOUS', 0), { score: 99, signal_time: '2026-10-12T09:15:00+05:30', metadata: {} }]);
+    const report = await (await route('performance').GET()).json();
+    assert.equal(report.tracked, 3);
+    assert.equal(report.complete, 3);
+    assert.deepEqual(report.firstHit, { target: 1, stop: 1, ambiguous: 1, neither: 0 });
+    assert.equal(report.medianReturnPct['60'], 0);
+    assert.equal(report.sufficientSample, false);
+  } finally {
+    global.fetch = previous;
+    if (oldBase === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldBase;
+    if (oldKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = oldKey;
+  }
+});
+
 test('health distinguishes current, stale, absent and unreachable worker', async () => {
   const previous = global.fetch;
   const oldBase = process.env.SUPABASE_URL;

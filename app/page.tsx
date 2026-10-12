@@ -63,6 +63,14 @@ export default function Home() {
   const [hotError, setHotError] = useState("");
   const [preMarketError, setPreMarketError] = useState("");
   const [health, setHealth] = useState<{status: string; last_run_at: string | null}>({status: "CHECKING", last_run_at: null});
+  const [performance, setPerformance] = useState<{tracked:number; complete:number; pending:number; firstHit:{target:number;stop:number;ambiguous:number;neither:number}; medianReturnPct:Record<string,number|null>; scoreBands:Array<{label:string;sample:number;medianReturn60Pct:number|null}>; sufficientSample:boolean} | null>(null);
+
+  async function loadPerformance() {
+    try {
+      const response = await fetch("/api/performance", { cache: "no-store" });
+      if (response.ok) setPerformance(await response.json());
+    } catch { /* The scanner remains usable while measurement is unavailable. */ }
+  }
 
   async function loadHealth() {
     try {
@@ -133,15 +141,18 @@ export default function Home() {
     loadHealth();
     loadHotStocks();
     loadPreMarketStudy();
+    loadPerformance();
     const timer = window.setInterval(loadSignals, 5000);
     const healthTimer = window.setInterval(loadHealth, 15000);
     const hotTimer = window.setInterval(loadHotStocks, 30000);
     const preMarketTimer = window.setInterval(loadPreMarketStudy, 30000);
+    const performanceTimer = window.setInterval(loadPerformance, 60000);
     return () => {
       window.clearInterval(timer);
       window.clearInterval(healthTimer);
       window.clearInterval(hotTimer);
       window.clearInterval(preMarketTimer);
+      window.clearInterval(performanceTimer);
     };
   }, []);
 
@@ -327,6 +338,16 @@ export default function Home() {
         <div className="card"><div className="cardTop"><span>AVG SCORE</span><span className="miniIcon">★</span></div><strong>{avgScore}</strong><small>{topSector ? `Top signal sector: ${topSector}` : "Waiting for sector data"}</small></div>
       </section>
 
+      <section className="desk" aria-label="Scanner decision overview">
+        <div className="deskHead"><div><span className="deskKicker">TODAY AT A GLANCE</span><h2>Movement watch & confirmations</h2><p>Pre-market rows are watch candidates. Only a completed 3-minute break is a confirmed signal.</p></div><div className={health.status === "LIVE" ? "statusChip live" : "statusChip"}>{health.status === "LIVE" ? "● LIVE WORKER" : "● WORKER " + health.status}<small>Heartbeat {timeFmt(health.last_run_at)} IST</small></div></div>
+        <div className="deskGrid">
+          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? preMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b><small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured · indicative only</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b><small>Confirmed {timeFmt(signal.signal_time)} IST · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
+        </div>
+      </section>
+
+      <section className="evidence" aria-label="Measured scanner outcomes"><div><span className="deskKicker">MEASURED OUTCOMES · LAST 30 DAYS</span><h2>Signal evidence</h2><p>Forward returns use completed 1-minute candles after confirmation. Scores rank setups, not win probabilities.</p></div>{performance ? <div className="evidenceStats"><div><b>{performance.complete}</b><span>complete / {performance.tracked} tracked</span></div><div><b>{performance.firstHit.target} / {performance.firstHit.stop}</b><span>target first / stop first</span></div><div><b>{performance.medianReturnPct["60"] == null ? "—" : `${performance.medianReturnPct["60"]}%`}</b><span>median 60-min directional return</span></div><div><b>{performance.firstHit.ambiguous}</b><span>ambiguous OHLC bars</span></div></div> : <div className="deskEmpty">Outcome history is not available yet.</div>}{performance && <div className="scoreBands"><b>Score bands · 60-min median</b>{performance.scoreBands.map(band => <span key={band.label}>{band.label}: {band.sample} signals · {band.medianReturn60Pct == null ? "—" : `${band.medianReturn60Pct}%`}</span>)}</div>}<small className="evidenceNote">{performance && !performance.sufficientSample ? "Small sample: wait for at least 30 completed, prospectively measured signals before judging accuracy." : "Historical rows without prospective candle tracking are excluded."}</small></section>
+
       <section className="toolbar">
         <div className="toolbarLeft">
           <div className="tabs">{(["ALL", "BUY", "SELL"] as const).map((item) => (
@@ -387,6 +408,7 @@ export default function Home() {
         </div>
       </section>
 
+      <details className="detailGroup"><summary>Explore detailed studies <span>Hot stocks · technical watch · pre-market · cross-section</span></summary>
       <section className="watchlistWrap hotStocksWrap">
         <div className="watchlistHead">
           <div>
@@ -543,6 +565,9 @@ export default function Home() {
           </div>}
       </section>
 
+      </details>
+
+      <details className="detailGroup signalDetails"><summary>View all confirmed signals <span>{filtered.length} rows · sortable table</span></summary>
       <section className="tableWrap">
         <div className="tableHead">
           <div><strong>Confirmed Signals</strong><span>{filtered.length} rows · click any column to sort</span></div>
@@ -583,10 +608,39 @@ export default function Home() {
           </table>
         </div>
       </section>
+      </details>
 
       <footer><span>Prime Scanner · NSE F&O universe · 3-minute engine</span><span>{lastRefresh ? "Updated " + lastRefresh.toLocaleTimeString("en-IN") : "Connecting…"}</span></footer>
 
       <style jsx>{`
+        .desk,.evidence,.detailGroup { max-width:1680px; margin:0 auto 14px; border:1px solid #24364d; border-radius:16px; background:#0c1624; overflow:hidden; }
+        .desk { padding:18px; background:linear-gradient(140deg,#10213a,#0b1523 50%,#10192a); }
+        .deskHead { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:16px; }
+        .deskKicker { color:#5dd4b0; font-size:10px; font-weight:800; letter-spacing:1.5px; }
+        .desk h2,.evidence h2 { margin:5px 0; font-size:21px; letter-spacing:-.5px; }
+        .desk p,.evidence p { margin:0; color:#9baec8; font-size:12px; line-height:1.5; }
+        .statusChip { border:1px solid #765c2e; background:#302719; color:#f0bd65; border-radius:9px; padding:10px 12px; font-size:11px; font-weight:800; white-space:nowrap; }
+        .statusChip.live { border-color:#22644d; background:#0e2b23; color:#5de1aa; }
+        .statusChip small { display:block; margin-top:3px; color:#a8b7ca; font-size:10px; font-weight:500; }
+        .deskGrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .deskPanel { border:1px solid #253952; border-radius:11px; background:#0a1320; overflow:hidden; }
+        .deskPanelTitle { display:flex; justify-content:space-between; padding:11px 13px; background:#142238; color:#dce8f7; font-size:11px; font-weight:800; letter-spacing:.5px; }
+        .deskPanelTitle span { color:#91a6c1; font-weight:600; letter-spacing:0; }
+        .deskItem { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 13px; border-top:1px solid #1b2c42; }
+        .deskItem b { color:#f0f5fb; font-size:13px; } .deskItem small { display:block; margin-top:3px; color:#97a9be; font-size:11px; } .deskItem strong { color:#d9e9fb; font-size:13px; }
+        .deskItem em { font-size:10px; font-style:normal; margin-left:5px; } .deskItem em.up { color:#54dbaa; } .deskItem em.down { color:#ff8292; }
+        .deskFoot { padding:10px 13px; color:#8396af; font-size:10px; border-top:1px solid #1b2c42; }
+        .deskEmpty { padding:18px 13px; color:#93a5bc; font-size:12px; }
+        .evidence { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:14px; padding:17px 18px; }
+        .evidenceStats { display:grid; grid-template-columns:repeat(4,minmax(105px,1fr)); gap:8px; }
+        .evidenceStats div { padding:9px 10px; border:1px solid #263b54; border-radius:9px; background:#111e30; }
+        .evidenceStats b { display:block; color:#e9f3ff; font-size:17px; } .evidenceStats span { display:block; color:#95a9c2; font-size:10px; }
+        .scoreBands { display:flex; flex-wrap:wrap; gap:8px; flex-basis:100%; align-items:center; color:#9aafc8; font-size:10px; } .scoreBands b { color:#dce9f8; } .scoreBands span { border:1px solid #2a4059; border-radius:6px; padding:5px 7px; }
+        .evidenceNote { flex-basis:100%; color:#8ea0b7; font-size:10px; }
+        .detailGroup { border-color:#263952; } .detailGroup summary { display:flex; align-items:center; justify-content:space-between; gap:12px; cursor:pointer; padding:15px 18px; color:#e7f1fc; font-size:13px; font-weight:800; list-style:none; }
+        .detailGroup summary::-webkit-details-marker { display:none; } .detailGroup summary::after { content:"＋"; color:#83a5cf; } .detailGroup[open] summary::after { content:"−"; }
+        .detailGroup summary span { margin-left:auto; color:#8ba0b9; font-size:10px; font-weight:500; }
+        .detailGroup .watchlistWrap,.detailGroup .tableWrap { margin:10px; max-width:none; }
         * { box-sizing: border-box; }
         .page { min-height:100vh; padding:26px 28px 18px; background:radial-gradient(circle at 50% -20%,#12203a 0,#080d16 38%,#060a11 100%); color:#e8edf5; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
         .header,.cards,.toolbar,.tableWrap,footer,.error { max-width:1680px; margin-left:auto; margin-right:auto; }
@@ -685,7 +739,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
       `}</style>
     </main>
   );

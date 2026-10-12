@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
+from worker.outcomes import new_outcome
 
 import requests
 
@@ -64,6 +65,8 @@ class SupabaseStore:
         ts = result.get("timestamp")
         day = str(ts)[:10]
         signal_id = f"{symbol}|{result.get('timeframe')}|{result.get('direction')}|{day}"
+        confirmed_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        result["_confirmed_at"] = confirmed_at.isoformat()
 
         existing = requests.get(
             self.base + "/rest/v1/scanner_signals",
@@ -118,7 +121,10 @@ class SupabaseStore:
             },
             "fo_confirmation": "F&O STOCK",
             "is_active": True,
-            "signal_time": ts,
+            # This is when the completed candle was observed by the worker.
+            # The engine timestamp is the candle start, which is too early to
+            # use as the tradeable confirmation time.
+            "signal_time": confirmed_at.isoformat(),
             "last_updated": datetime.now().astimezone().isoformat(),
             "metadata": {
                 "timeframe": result.get("timeframe"),
@@ -128,6 +134,7 @@ class SupabaseStore:
                 "signal_mode": result.get("signal_mode"),
                 "scoring_version": result.get("scoring_version"),
                 "score_breakdown": result.get("score_breakdown") or {},
+                "outcome": new_outcome(confirmed_at, str(ts)),
                 "sector": result.get("sector"),
                 "sector_change_percent": result.get("sector_change_percent"),
                 "sector_rank": result.get("sector_rank"),
@@ -224,7 +231,7 @@ class SupabaseStore:
         return response.json()
 
     def delete_previous_days(self) -> int:
-        """Delete scanner signals from dates before today."""
+        """Retained for manual maintenance; the worker preserves signal history."""
         day = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         response = self._request(
             "DELETE",
@@ -303,13 +310,29 @@ class SupabaseStore:
             "GET",
             "scanner_signals",
             params={
-                "select": "id,symbol,signal_type,score,grade,metadata,score_breakdown",
+                "select": "id,symbol,instrument_key,signal_type,score,grade,entry,stop_loss,target1,metadata,score_breakdown",
                 "signal_time": f"gte.{day}T00:00:00+05:30",
                 "signal_state": "eq.CONFIRMED",
                 "limit": "500",
             },
         )
         return response.json()
+
+    def update_signal_outcome(self, signal_id: str, outcome: dict[str, Any]) -> None:
+        response = self._request(
+            "GET", "scanner_signals",
+            params={"select": "metadata", "id": f"eq.{signal_id}", "limit": "1"},
+        )
+        rows = response.json()
+        if not rows:
+            return
+        metadata = dict(rows[0].get("metadata") or {})
+        metadata["outcome"] = outcome
+        self._request(
+            "PATCH", "scanner_signals", params={"id": f"eq.{signal_id}"},
+            headers={"Prefer": "return=minimal"},
+            data=json.dumps({"metadata": _json_safe(metadata)}, allow_nan=False),
+        )
 
     def update_signal_sector(
         self,
