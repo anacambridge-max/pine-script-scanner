@@ -6,6 +6,8 @@ export const revalidate = 0;
 const IST = "Asia/Kolkata";
 const EXPECTED_MINUTES = Array.from({ length: 9 }, (_, minute) => `09:${String(minute).padStart(2, "0")}`);
 
+import { selectMovementCandidates } from "../../lib/premarket-selection";
+
 function istClock(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   const date = new Date(value);
@@ -64,15 +66,14 @@ export async function GET() {
   const capturedMinutes = new Set(snapshotTimes.map(istClock).filter((value): value is string => Boolean(value)));
   const missingMinutes = EXPECTED_MINUTES.filter((minute) => !capturedMinutes.has(minute));
   const latestSnapshot = snapshotTimes[snapshotTimes.length - 1] ?? null;
-  const rows = latestSnapshot
-    ? allRows.filter((row) => String(row.snapshot_time ?? "") === latestSnapshot)
-      .sort((a, b) => Number(b.preopen_score ?? 0) - Number(a.preopen_score ?? 0))
-    : [];
+  const rows = selectMovementCandidates(allRows, latestSnapshot);
+  const latestSymbolCount = latestSnapshot ? allRows.filter(row => row.snapshot_time === latestSnapshot).length : 0;
 
   return NextResponse.json({
     trade_date: today,
     snapshot_time: latestSnapshot,
     rows,
+    source_symbol_count: latestSymbolCount,
     snapshot_count: capturedMinutes.size,
     window_start: snapshotTimes[0] ?? null,
     window_end: latestSnapshot,

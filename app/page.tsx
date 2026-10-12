@@ -21,6 +21,8 @@ type PreMarketRow = {
   oi_change_pct: number | null; oi_volume: number | null;
   preopen_score: number; preopen_bias: string; reasons: string[];
   source_preopen?: string | null; source_oi?: string | null;
+  movement_direction: "UP WATCH" | "DOWN WATCH"; movement_score: number;
+  aligned_snapshots: number; observed_snapshots: number;
 };
 
 type Signal = {
@@ -48,6 +50,7 @@ export default function Home() {
   const [hotStocks, setHotStocks] = useState<HotStock[]>([]);
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
+  const [preMarketSourceCount, setPreMarketSourceCount] = useState(0);
   const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
   const [preMarketSnapshotCount, setPreMarketSnapshotCount] = useState(0);
   const [preMarketStudyComplete, setPreMarketStudyComplete] = useState(false);
@@ -96,6 +99,7 @@ export default function Home() {
       if (response.ok) {
         setPreMarketError("");
         setPreMarketRows(payload.rows ?? []);
+        setPreMarketSourceCount(Number(payload.source_symbol_count ?? 0));
         setPreMarketSnapshotTime(payload.snapshot_time ?? null);
         setPreMarketSnapshotCount(Number(payload.snapshot_count ?? 0));
         setPreMarketStudyComplete(Boolean(payload.study_complete));
@@ -181,6 +185,9 @@ export default function Home() {
   const sells = signals.filter((s) => s.signal_type.toUpperCase().includes("SELL")).length;
   const avgScore = signals.length ? Math.round(signals.reduce((sum, s) => sum + Number(s.score || 0), 0) / signals.length) : 0;
   const topSector = [...signals].filter(s => s.metadata?.sector).sort((a,b) => Number(b.score||0)-Number(a.score||0))[0]?.metadata?.sector;
+  const newsBySymbol = useMemo(() => new Map(hotStocks
+    .filter(row => row.news_score > 0 && row.published_ist && row.news_summary)
+    .map(row => [row.symbol.trim().toUpperCase(), row])), [hotStocks]);
   const commonStockRows = useMemo(() => {
     const sections = new Map<string, Set<string>>();
     const add = (symbol: string | null | undefined, section: string) => {
@@ -212,13 +219,19 @@ export default function Home() {
     const premarketBySymbol = new Map<string, PreMarketRow>();
     for (const row of preMarketRows) {
       const symbol = String(row.symbol || "").trim().toUpperCase();
-      if (symbol && (row.source_preopen || row.source_oi) && !premarketBySymbol.has(symbol)) {
+      if (symbol && !premarketBySymbol.has(symbol)) {
         premarketBySymbol.set(symbol, row);
       }
     }
     return signals
       .filter(signal => signal.signal_state === "CONFIRMED")
       .filter(signal => premarketBySymbol.has(String(signal.symbol || "").trim().toUpperCase()))
+      .filter(signal => {
+        const candidate = premarketBySymbol.get(String(signal.symbol || "").trim().toUpperCase())!;
+        return candidate.movement_direction === "UP WATCH"
+          ? signal.signal_type.toUpperCase().includes("BUY")
+          : signal.signal_type.toUpperCase().includes("SELL");
+      })
       .map(signal => ({
         signal,
         premarket: premarketBySymbol.get(String(signal.symbol || "").trim().toUpperCase())!,
@@ -441,22 +454,25 @@ export default function Home() {
       <section className="watchlistWrap hotStocksWrap">
         <div className="watchlistHead">
           <div>
-            <strong>NSE PRE-MARKET STUDY · 09:00–09:08 IST</strong>
+            <strong>PRE-MARKET MOVEMENT WATCH · 09:00–09:08 IST</strong>
             <span>
               {preMarketSnapshotTime
-                ? `Latest NSE snapshot ${timeFmt(preMarketSnapshotTime)} IST · ${preMarketSnapshotCount}/9 minute snapshots ${preMarketStudyComplete ? "captured" : "captured so far"}${preMarketWindowStart && preMarketWindowEnd ? ` · window ${timeFmt(preMarketWindowStart)}–${timeFmt(preMarketWindowEnd)} IST` : ""} · indicative demand/supply + OI spurts context`
+                ? `${preMarketRows.length} selected from ${preMarketSourceCount} NSE symbols · ${preMarketSnapshotCount}/9 snapshots ${preMarketStudyComplete ? "captured" : "captured so far"}${preMarketWindowStart && preMarketWindowEnd ? ` · ${timeFmt(preMarketWindowStart)}–${timeFmt(preMarketWindowEnd)} IST` : ""} · latest ${timeFmt(preMarketSnapshotTime)} IST · price gap + order pressure + repeated snapshots`
                 : "Waiting for the next 09:00–09:08 IST snapshot · NSE indicative data only, not a BUY/SELL signal"}
             </span>
           </div>
-          <div className="watchlistBadge">{preMarketRows.length} symbols</div>
+          <div className="watchlistBadge">{preMarketRows.length} candidates</div>
         </div>
-        {preMarketRows.length === 0 ? <div className="watchEmpty">No saved NSE pre-market snapshot yet. The worker must be running during 09:00–09:08 IST and the Supabase migration must be applied.</div> :
+        {preMarketRows.length === 0 ? <div className="watchEmpty">No stock meets the movement watch criteria yet. The study needs at least 3 snapshots, a meaningful indicative gap and liquid, consistent order pressure.</div> :
           <div className="tableScroll" style={{maxHeight: 360}}>
             <table style={{minWidth: 1050}}>
-              <thead><tr><th>SYMBOL</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th className="right">OI VOLUME</th><th>PRE-OPEN BIAS</th><th className="right">SCORE</th><th>WHY</th></tr></thead>
+              <thead><tr><th>SYMBOL</th><th>DIRECTION</th><th className="right">WATCH SCORE</th><th className="right">CONSISTENCY</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>FRESH NEWS, IF AVAILABLE</th></tr></thead>
               <tbody>{preMarketRows.map((row) => (
                 <tr key={row.id}>
                   <td className="symbol">{row.symbol}</td>
+                  <td><span className="setupBadge">{row.movement_direction}</span></td>
+                  <td className="right num">{row.movement_score}</td>
+                  <td className="right num">{row.aligned_snapshots}/3 · {row.observed_snapshots} total</td>
                   <td className="right num">{fmt(row.previous_close)}</td>
                   <td className="right num">{row.indicative_gap_pct == null ? "—" : fmt(row.indicative_gap_pct) + "%"}</td>
                   <td className="right num">{fmt(row.indicative_price)}</td>
@@ -465,28 +481,25 @@ export default function Home() {
                   <td className="right num">{row.sell_qty == null ? "—" : Math.round(row.sell_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.imbalance_qty == null ? "—" : Math.round(row.imbalance_qty).toLocaleString("en-IN")}</td>
                   <td className="right num">{row.oi_change_pct == null ? "—" : fmt(row.oi_change_pct) + "%"}</td>
-                  <td className="right num">{row.oi_volume == null ? "—" : Math.round(row.oi_volume).toLocaleString("en-IN")}</td>
-                  <td><span className="setupBadge">{row.preopen_bias}</span></td>
-                  <td className="right"><span className={row.preopen_score >= 15 ? "score high" : row.preopen_score <= -15 ? "score low" : "score mid"}>{row.preopen_score}</span></td>
-                  <td>{(row.reasons ?? []).join(" · ") || "No directional order-book context"}</td>
+                  <td>{newsBySymbol.get(row.symbol)?.news_summary ?? "—"}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>}
         <div className="watchlistHead">
-          <span>Sources: <a href="https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market" target="_blank" rel="noreferrer">NSE Pre-Open Market</a> · <a href="https://www.nseindia.com/market-data/oi-spurts" target="_blank" rel="noreferrer">NSE OI Spurts</a>. OI change is contextual; it does not determine direction by itself.</span>
+          <span>Sources: <a href="https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market" target="_blank" rel="noreferrer">NSE Pre-Open Market</a> · <a href="https://www.nseindia.com/market-data/oi-spurts" target="_blank" rel="noreferrer">NSE OI Spurts</a>. Watch score ranks the observed setup; it is not a probability. News appears only when today's timestamp-verified headline is available.</span>
         </div>
       </section>
 
       <section className="watchlistWrap hotStocksWrap">
         <div className="watchlistHead">
           <div>
-            <strong>NSE PRE-MARKET × CONFIRMED SIGNALS</strong>
-            <span>Only symbols present in the 09:00–09:08 NSE Pre-Open/OI study and also in the existing CONFIRMED signal feed. This is a comparison panel only; it does not create or alter signals.</span>
+            <strong>PRE-MARKET WATCH × ALIGNED CONFIRMED SIGNALS</strong>
+            <span>Movement watch candidates whose pre-market direction agrees with a confirmed BUY or SELL signal. This comparison does not create signals.</span>
           </div>
-          <div className="watchlistBadge">{preMarketConfirmedRows.length} matches</div>
+          <div className="watchlistBadge">{preMarketConfirmedRows.length} aligned</div>
         </div>
-        {preMarketConfirmedRows.length === 0 ? <div className="watchEmpty">No common symbols yet. Matches appear when a saved NSE pre-market/OI symbol also has a CONFIRMED BUY or SELL signal.</div> :
+        {preMarketConfirmedRows.length === 0 ? <div className="watchEmpty">No movement watch candidate has a confirmed signal in the same direction yet.</div> :
           <div className="tableScroll" style={{maxHeight: 320}}>
             <table style={{minWidth: 1050}}>
               <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th className="right">SIGNAL SCORE</th><th>SIGNAL TIME</th><th>PRE-MARKET BIAS</th><th className="right">INDICATIVE GAP</th><th className="right">OI CHANGE</th><th>PRE-MARKET CONTEXT</th></tr></thead>

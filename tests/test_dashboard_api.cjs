@@ -5,6 +5,13 @@ const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
 
+require.extensions['.ts'] = (loaded, file) => {
+  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText;
+  loaded._compile(code, file);
+};
+
 function route(name) {
   const file = path.resolve('app/api', name, 'route.ts');
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
@@ -69,7 +76,7 @@ test('health distinguishes current, stale, absent and unreachable worker', async
 });
 
 
-test('pre-market pagination uses offset and exposes the latest saved snapshot', async () => {
+test('pre-market pagination uses offset and rejects unqualified raw symbols', async () => {
   const previous = global.fetch;
   const oldBase = process.env.SUPABASE_URL;
   const oldKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -89,8 +96,8 @@ test('pre-market pagination uses offset and exposes the latest saved snapshot', 
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.deepEqual(offsets, [0, 1000]);
-    assert.equal(payload.rows.length, 1000);
-    assert.equal(payload.rows[0].symbol, 'S999');
+    assert.equal(payload.source_symbol_count, 1000);
+    assert.equal(payload.rows.length, 0);
     assert.equal(payload.snapshot_count, 2);
     assert.equal(payload.study_complete, false);
   } finally {
@@ -98,4 +105,25 @@ test('pre-market pagination uses offset and exposes the latest saved snapshot', 
     if (oldBase === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldBase;
     if (oldKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = oldKey;
   }
+});
+
+test('movement watch requires repeated aligned gap and liquid order pressure', () => {
+  const { selectMovementCandidates } = require('../app/lib/premarket-selection.ts');
+  const make = (symbol, minute, gap, buy, sell, extra = {}) => ({
+    symbol, snapshot_time: `2026-10-12T03:${30 + minute}:00+00:00`, source_preopen: 'NSE',
+    indicative_gap_pct: gap, indicative_price: 100, buy_qty: buy, sell_qty: sell, ...extra,
+  });
+  const rows = [
+    make('UP', 5, 1.0, 10000, 3000), make('UP', 6, 1.1, 11000, 3000), make('UP', 7, 1.2, 12000, 3000),
+    make('DOWN', 5, -1.1, 3000, 11000), make('DOWN', 6, -1.2, 3000, 11000), make('DOWN', 7, -1.3, 3000, 12000),
+    make('THIN', 5, 1.2, 8, 2), make('THIN', 6, 1.2, 8, 2), make('THIN', 7, 1.2, 8, 2),
+    make('FLIP', 5, -1.2, 3000, 11000), make('FLIP', 6, -1.2, 3000, 11000), make('FLIP', 7, 1.2, 11000, 3000),
+    make('OI_ONLY', 5, 2, 10000, 3000, {source_preopen: null}),
+    make('OI_ONLY', 6, 2, 10000, 3000, {source_preopen: null}),
+    make('OI_ONLY', 7, 2, 10000, 3000, {source_preopen: null}),
+  ];
+  const selected = selectMovementCandidates(rows, '2026-10-12T03:37:00+00:00');
+  assert.deepEqual(selected.map(row => row.symbol).sort(), ['DOWN', 'UP']);
+  assert.equal(selected.find(row => row.symbol === 'UP').movement_direction, 'UP WATCH');
+  assert.equal(selected.find(row => row.symbol === 'DOWN').movement_direction, 'DOWN WATCH');
 });
