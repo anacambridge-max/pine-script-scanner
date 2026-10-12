@@ -46,10 +46,10 @@ const timeFmt = (value: string | null) =>
   value ? new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value)) : "—";
 
 const signalClock = (signal: Signal) =>
-  `${timeFmt(signal.signal_time)} IST · ${signal.metadata?.outcome?.version === 1 ? "observed confirmation" : "legacy candle time"}`;
+  timeFmt(signal.signal_time);
 
 export default function Home() {
-  type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
+  type SortKey = "pattern" | "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
   const [marketContext, setMarketContext] = useState<MarketContextRow[]>([]);
   const [contextError, setContextError] = useState("");
@@ -203,6 +203,7 @@ export default function Home() {
         switch (sort.key) {
           case "signal_time": return s.signal_time ? new Date(s.signal_time).getTime() : 0;
           case "symbol": return s.symbol;
+          case "pattern": { const hint = confirmedPatternHint(s, contextBySymbol.get(s.symbol)?.daily_context); return [...hint.labels, hint.label ?? ""].join(" "); }
           case "signal_type": return s.signal_type;
           case "timeframe": return Number(s.metadata?.timeframe ?? 0);
           case "sector": return s.metadata?.sector ?? "";
@@ -218,7 +219,7 @@ export default function Home() {
         : Number(av) - Number(bv);
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [signals, filter, search, sort]);
+  }, [signals, filter, search, sort, marketContext]);
 
   const setSortKey = (key: SortKey) => {
     setSort((current) => current.key === key
@@ -337,13 +338,10 @@ export default function Home() {
 
   const columns: { key: SortKey; label: string; align?: "right" }[] = [
     { key: "signal_time", label: "TIME" },
-    { key: "symbol", label: "SYMBOL / COMPANY" },
+    { key: "symbol", label: "SYMBOL" },
+    { key: "pattern", label: "PATTERN / POTENTIAL MOVE" },
     { key: "signal_type", label: "SIGNAL" },
-    { key: "timeframe", label: "TF" },
     { key: "score", label: "SCORE", align: "right" },
-    { key: "grade", label: "GRADE" },
-    { key: "sector", label: "SECTOR" },
-    { key: "sector_rank", label: "SECTOR RANK", align: "right" },
     { key: "ltp", label: "SIGNAL CLOSE", align: "right" },
     { key: "entry", label: "ENTRY", align: "right" },
     { key: "stop_loss", label: "SL", align: "right" },
@@ -624,23 +622,17 @@ export default function Home() {
               </th>
             ))}</tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={17} className="empty"><div className="spinner" /><strong>Loading scanner feed…</strong><span>Connecting to live confirmed signals</span></td></tr> :
-               filtered.length === 0 ? <tr><td colSpan={17} className="empty"><strong>No confirmed signals</strong><span>The scanner will add a row when a 3M candle closes through the first PDH/PDL break with 2× SMA20 volume.</span></td></tr> :
+              {loading ? <tr><td colSpan={columns.length} className="empty"><div className="spinner" /><strong>Loading scanner feed…</strong><span>Connecting to live confirmed signals</span></td></tr> :
+               filtered.length === 0 ? <tr><td colSpan={columns.length} className="empty"><strong>No confirmed signals</strong><span>The scanner will add a row when a 3M candle closes through the first PDH/PDL break with 2× SMA20 volume.</span></td></tr> :
                filtered.map((signal) => {
                  const isBuy = signal.signal_type.toUpperCase().includes("BUY");
-                 const tf = String(signal.metadata?.timeframe ?? "3").toUpperCase();
-                 const rank = signal.metadata?.sector_rank;
-                 const rankType = signal.metadata?.sector_rank_type;
                  const score = Number(signal.score ?? 0);
                  return <tr key={signal.id}>
-                   <td className="timeCell">{signalClock(signal)}</td>
-                   <td className="symbol"><div>{signal.symbol}</div>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}<small>{signal.metadata?.company_name ?? signal.symbol}</small></td>
+                   <td className="timeCell">{timeFmt(signal.signal_time)}</td>
+                   <td className="symbol">{signal.symbol}</td>
+                   <td className="patternCell">{patternBadge(signal)}</td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
-                   <td><span className="tfBadge">{tf}M</span></td>
                    <td className="right"><span className={score >= 80 ? "score high" : score >= 65 ? "score mid" : "score low"}>{score}</span></td>
-                   <td><span className="grade">{signal.grade ?? "—"}</span></td>
-                   <td><div className="sectorCell">{signal.metadata?.sector ?? "—"}{signal.metadata?.sector_change_percent != null && <small>{Number(signal.metadata.sector_change_percent).toFixed(2)}%</small>}</div></td>
-                   <td className="right">{rank ? <span className={rank <= 3 ? "rankBadge top" : "rankBadge"}>#{rank}{rankType ? ` · ${rankType.replace("TOP 3 ", "")}` : ""}</span> : "—"}</td>
                    <td className="right num">{fmt(signal.ltp)}</td><td className="right num">{fmt(signal.entry)}</td><td className="right num sl">{fmt(signal.stop_loss)}</td>
                    <td className="right num target">{fmt(signal.target1)}</td><td className="right num target">{fmt(signal.target2)}</td>
                    <td className="right num">{fmt(signal.risk_reward)}</td><td className="right num">{fmt(signal.rvol)}×</td><td className="right num">{fmt(signal.breakout_level)}</td>
@@ -662,7 +654,9 @@ export default function Home() {
         .contextTitle strong { font-size:15px; color:#e6efff; } .contextTitle span { color:#82d7c0; font-size:11px; }
         .contextCard p { font-size:11px; color:#a6b8d1; line-height:1.6; margin:8px 0; } .contextCard small { font-size:10px; color:#8eabc5; }
         .contextTags { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; } .contextTags b,.contextTags>span { border:1px solid #2c4763; background:#12263a; padding:5px 7px; border-radius:5px; color:#b9d7ed; font-size:10px; }
-        .sectorSupport { display:block; font-size:10px; margin-top:5px; color:#8da0b9; } .sectorSupport.supported { color:#f5ce79; font-weight:800; padding:4px 7px; border:1px solid #6a562c; border-radius:5px; background:#302719; width:fit-content; }
+        .patternCell { min-width:230px; max-width:320px; white-space:normal; }
+        .patternCell :global(small) { display:block; margin:4px 0; font-size:11px; line-height:1.5; }
+        :global(.sectorSupport) { display:block; font-size:10px; margin-top:5px; color:#8da0b9; } :global(.sectorSupport.supported) { color:#f5ce79; font-weight:800; padding:4px 7px; border:1px solid #6a562c; border-radius:5px; background:#302719; width:fit-content; }
         .contextNews a { display:block; margin:8px 0; font-size:11px; line-height:1.5; color:#88c9f5; } .contextNews small { display:block; }
         @media(max-width:700px) { .contextGrid {grid-template-columns:1fr;} }
         .desk,.evidence,.detailGroup { max-width:1680px; margin:0 auto 14px; border:1px solid #24364d; border-radius:16px; background:#0c1624; overflow:hidden; }
@@ -772,7 +766,7 @@ export default function Home() {
         .tableHead strong { display:block; font-size:13px; color:#e5ebf4; } .tableHead span { color:#66768e; font-size:10px; margin-left:9px; }
         .legend { display:flex; gap:14px; color:#687890; font-size:10px; } .legend i { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; } .legendBuy { background:#31d58a; } .legendSell { background:#ff6680; }
         .tableScroll { overflow:auto; max-height:calc(100vh - 330px); scrollbar-width:thin; scrollbar-color:#26364e #0a111b; }
-        table { width:100%; border-collapse:separate; border-spacing:0; min-width:1450px; }
+        table { width:100%; border-collapse:separate; border-spacing:0; min-width:1200px; }
         th { position:sticky; top:0; z-index:2; background:#0d1725; border-bottom:1px solid #26354b; color:#6f8098; font-size:9px; text-align:left; letter-spacing:.65px; padding:10px 11px; white-space:nowrap; }
         th.right,.right { text-align:right; }
         .sortButton { width:100%; border:0; background:transparent; color:inherit; cursor:pointer; display:flex; align-items:center; gap:7px; justify-content:flex-start; font:inherit; letter-spacing:inherit; padding:0; text-align:inherit; }
