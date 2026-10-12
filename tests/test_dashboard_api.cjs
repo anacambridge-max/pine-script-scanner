@@ -202,3 +202,16 @@ test('confirmed movement tags require full daily boundary and never use later OI
   assert.deepEqual(confirmedPatternHint({...signal,metadata:{...signal.metadata,movement_evidence:evidence}}).supporting,['SHORT COVERING']);
   assert.equal(confirmedPatternHint({...signal,signal_type:'SELL',entry:98}).label,'Potential Top Loser');
 });
+
+test('pattern filters actually narrow confirmed stocks and require combined candle strength', () => {
+  const {matchesPatternFilter} = require('../app/lib/market-context.ts');
+  const daily={status:'READY',compression:true,nr7:true,nr4:true,narrow_pd:false,pdh:104,pdl:99,trend:'DOWNTREND'};
+  const signal={signal_state:'CONFIRMED',signal_type:'BUY',entry:105,rvol:3.2,metadata:{daily_context:daily,full_result:{body_ratio:.8,close_location:.9}}};
+  for (const mode of ['STRONG','MOVERS','GAINERS','NR7','NR4']) assert.equal(matchesPatternFilter(signal,undefined,mode),true);
+  for (const mode of ['LOSERS','NARROW','SUPPORTED']) assert.equal(matchesPatternFilter(signal,undefined,mode),false);
+  assert.equal(matchesPatternFilter({...signal,rvol:2.5},undefined,'STRONG'),false);
+  assert.equal(matchesPatternFilter({...signal,entry:103},undefined,'MOVERS'),false);
+  assert.equal(matchesPatternFilter({...signal,signal_state:'WATCH'},undefined,'NR7'),false);
+  assert.equal(matchesPatternFilter({...signal,signal_type:'SELL',entry:98},undefined,'LOSERS'),true);
+  assert.equal(matchesPatternFilter({...signal,metadata:{}},undefined,'STRONG'),false);
+});

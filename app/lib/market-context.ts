@@ -5,6 +5,7 @@ export type DailyContext = {
 };
 
 export type MovementEvidence = {confirmed_at: string; observed_at: string; oi?: {label?: string}; news?: {impact: string; published_at: string; title: string}[]};
+export type PatternFilter = "ALL" | "MOVERS" | "STRONG" | "GAINERS" | "LOSERS" | "NR7" | "NR4" | "NARROW" | "SUPPORTED";
 export function confirmedPatternHint(signal: {signal_state?: string | null; signal_type: string; entry?: number | null; rvol?: number | null; metadata?: {daily_context?: DailyContext; movement_evidence?: MovementEvidence; full_result?: {body_ratio?: number; close_location?: number}}}, daily?: DailyContext) {
   const context = signal.metadata?.daily_context?.status === "READY" ? signal.metadata.daily_context : daily;
   const labels = context?.status === "READY" ? [context.nr7 && "NR7", context.nr4 && "NR4", context.narrow_pd && "NARROW PD RANGE"].filter(Boolean) as string[] : [];
@@ -25,6 +26,23 @@ export function confirmedPatternHint(signal: {signal_state?: string | null; sign
   const supporting = [oi, news.length > 0 ? "Fresh aligned news at confirmation" : null].filter(Boolean) as string[];
   return {labels, label: qualified ? buy ? "Potential Top Gainer" : "Potential Top Loser" : null,
     supporting, reason: qualified ? `Prior-session ${labels.join(" / ") || context?.trend} · confirmed PD${buy ? "H" : "L"} close-break · strong 3M candle · RVOL ${signal.rvol}×${supporting.length ? " · " + supporting.join(" · ") : ""}. Conditional watch, not a probability estimate.` : null};
+}
+export function matchesPatternFilter(signal: Parameters<typeof confirmedPatternHint>[0], daily: DailyContext | undefined, filter: PatternFilter) {
+  if (filter === "ALL") return true;
+  if (signal.signal_state !== "CONFIRMED") return false;
+  const hint = confirmedPatternHint(signal, daily);
+  switch (filter) {
+    case "MOVERS": return hint.label != null;
+    case "GAINERS": return hint.label === "Potential Top Gainer";
+    case "LOSERS": return hint.label === "Potential Top Loser";
+    case "NR7": return hint.labels.includes("NR7");
+    case "NR4": return hint.labels.includes("NR4");
+    case "NARROW": return hint.labels.includes("NARROW PD RANGE");
+    case "SUPPORTED": return hint.label != null && hint.supporting.length > 0;
+    case "STRONG": return hint.label != null && (signal.rvol ?? 0) >= 3 &&
+      (signal.metadata?.full_result?.body_ratio ?? 0) >= .65 &&
+      (signal.metadata?.full_result?.close_location ?? 0) >= .8;
+  }
 }
 export type SectorContext = {
   sector?: string | null; sector_change?: number | null; sector_gainer_rank?: number | null;

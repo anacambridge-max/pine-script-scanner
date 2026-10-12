@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from "react";
-import { DailyContext, MarketContextRow, MovementEvidence, sectorSupport, confirmedPatternHint } from "./lib/market-context";
+import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter } from "./lib/market-context";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -88,6 +88,16 @@ export default function Home() {
   const [preMarketWindowStart, setPreMarketWindowStart] = useState<string | null>(null);
   const [preMarketWindowEnd, setPreMarketWindowEnd] = useState<string | null>(null);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
+  const [patternFilter, setPatternFilter] = useState<PatternFilter>("STRONG");
+  const patternOptions: {value: PatternFilter; label: string}[] = [
+    {value: "STRONG", label: "Strong combined setups"},
+    {value: "MOVERS", label: "All potential movers"},
+    {value: "GAINERS", label: "Potential gainers"},
+    {value: "LOSERS", label: "Potential losers"},
+    {value: "SUPPORTED", label: "Movers + OI/news support"},
+    {value: "NR7", label: "NR7"}, {value: "NR4", label: "NR4"},
+    {value: "NARROW", label: "Narrow PD range"}, {value: "ALL", label: "All confirmed signals"},
+  ];
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -195,7 +205,7 @@ export default function Home() {
     const rows = signals.filter((signal) => {
       const sideOk = filter === "ALL" || signal.signal_type.toUpperCase().includes(filter);
       const haystack = [signal.symbol, signal.metadata?.company_name, signal.metadata?.sector, signal.setup].filter(Boolean).join(" ").toUpperCase();
-      return sideOk && (!q || haystack.includes(q));
+      return sideOk && matchesPatternFilter(signal, contextBySymbol.get(signal.symbol)?.daily_context, patternFilter) && (!q || haystack.includes(q));
     });
 
     return rows.sort((x, y) => {
@@ -219,7 +229,7 @@ export default function Home() {
         : Number(av) - Number(bv);
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [signals, filter, search, sort, marketContext]);
+  }, [signals, filter, search, sort, marketContext, patternFilter]);
 
   const setSortKey = (key: SortKey) => {
     setSort((current) => current.key === key
@@ -322,7 +332,7 @@ export default function Home() {
     return { signal, selectorScore, reasons };
   };
 
-  const selectorRows = signals
+  const selectorRows = filtered
     .filter(s => s.signal_state === "CONFIRMED")
     .map(buildSelectorRow);
 
@@ -391,8 +401,10 @@ export default function Home() {
           ))}</div>
           <div className="modePill" title="New signals require strong candle, range expansion and EMA alignment. Scores are setup rankings, not win probabilities."><span className="greenDot" /> F&O · 3M · FIRST BREAK · 2× VOL</div>
         </div>
+        <label className="patternFilter">Pattern filter<select aria-label="Pattern filter" value={patternFilter} onChange={event => setPatternFilter(event.target.value as PatternFilter)}>{patternOptions.map(option => <option key={option.value} value={option.value}>{option.label} ({signals.filter(signal => matchesPatternFilter(signal, contextBySymbol.get(signal.symbol)?.daily_context, option.value)).length})</option>)}</select></label>
         <label className="searchBox"><span>⌕</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search symbol, company or sector…" /></label>
       </section>
+      <p className="filterExplanation">{filtered.length} of {signals.length} confirmed signals match{patternFilter === "STRONG" ? " · completed PDH/PDL break + compression/trend context · RVOL ≥3× · candle body ≥65% · directional close location ≥80%" : ` · ${patternOptions.find(option => option.value === patternFilter)?.label}`}. Filters narrow setup candidates; top-mover accuracy is not yet validated.</p>
 
       {error && <div className="error" role="alert">{error} · Displayed signals may be stale.</div>}
       {hotError && <div className="error" role="alert">{hotError}</div>}
@@ -415,7 +427,7 @@ export default function Home() {
         <div className="selectorGrid">
           <div className="selectorPanel buyPanel">
             <div className="selectorPanelTitle"><span>TOP BUY CANDIDATES</span><b>{topBuys.length}</b></div>
-            {topBuys.length === 0 ? <div className="selectorEmpty">No confirmed BUY signals</div> :
+            {topBuys.length === 0 ? <div className="selectorEmpty">No BUY candidates match this filter</div> :
               topBuys.map((item, index) => (
                 <div className="selectorRow" key={item.signal.id}>
                   <div className="selectorRank">{index + 1}</div>
@@ -432,7 +444,7 @@ export default function Home() {
 
           <div className="selectorPanel sellPanel">
             <div className="selectorPanelTitle"><span>TOP SELL CANDIDATES</span><b>{topSells.length}</b></div>
-            {topSells.length === 0 ? <div className="selectorEmpty">No confirmed SELL signals</div> :
+            {topSells.length === 0 ? <div className="selectorEmpty">No SELL candidates match this filter</div> :
               topSells.map((item, index) => (
                 <div className="selectorRow" key={item.signal.id}>
                   <div className="selectorRank">{index + 1}</div>
@@ -608,7 +620,7 @@ export default function Home() {
 
       </details>
 
-      <details className="detailGroup signalDetails"><summary>View all confirmed signals <span>{filtered.length} rows · sortable table</span></summary>
+      <details className="detailGroup signalDetails" open={patternFilter !== "ALL"}><summary>View matching confirmed signals <span>{filtered.length} rows · sortable table</span></summary>
       <section className="tableWrap">
         <div className="tableHead">
           <div><strong>Confirmed Signals</strong><span>{filtered.length} rows · click any column to sort</span></div>
@@ -623,7 +635,7 @@ export default function Home() {
             ))}</tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={columns.length} className="empty"><div className="spinner" /><strong>Loading scanner feed…</strong><span>Connecting to live confirmed signals</span></td></tr> :
-               filtered.length === 0 ? <tr><td colSpan={columns.length} className="empty"><strong>No confirmed signals</strong><span>The scanner will add a row when a 3M candle closes through the first PDH/PDL break with 2× SMA20 volume.</span></td></tr> :
+               filtered.length === 0 ? <tr><td colSpan={columns.length} className="empty"><strong>No signals match the selected filters</strong><span>Choose another pattern or wait for a qualifying completed 3M confirmation.</span></td></tr> :
                filtered.map((signal) => {
                  const isBuy = signal.signal_type.toUpperCase().includes("BUY");
                  const score = Number(signal.score ?? 0);
@@ -648,6 +660,9 @@ export default function Home() {
       <footer><span>Prime Scanner · NSE F&O universe · 3-minute engine</span><span>{lastRefresh ? "Updated " + lastRefresh.toLocaleTimeString("en-IN") : "Connecting…"}</span></footer>
 
       <style jsx>{`
+        .patternFilter { display:flex; flex-direction:column; gap:5px; color:#9bb1cd; font-size:10px; font-weight:700; }
+        .patternFilter select { background:#0d1d30; color:#d5e8ff; border:1px solid #34506d; border-radius:8px; padding:9px 12px; min-width:215px; font-size:12px; }
+        .filterExplanation { max-width:1680px; margin:0 auto 14px; color:#95aec9; font-size:11px; line-height:1.6; }
         .contextGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; padding:16px; max-height:620px; overflow:auto; }
         .contextCard { padding:15px; background:#0b1626; border:1px solid #29415d; border-radius:12px; margin-bottom:12px; min-width:0; }
         .contextTitle { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px; }
