@@ -35,7 +35,7 @@ type Signal = {
   vwap_status: string | null; rvol: number | null; volume_grade: string | null;
   breakout_level: number | null; fo_confirmation: string | null;
   is_active: boolean | null; signal_time: string | null; last_updated: string | null;
-  metadata?: { timeframe?: string; company_name?: string; sector?: string; sector_change_percent?: number; sector_rank?: number; sector_rank_type?: string; score_breakdown?: Record<string, unknown> };
+  metadata?: { timeframe?: string; company_name?: string; sector?: string; sector_change_percent?: number; sector_rank?: number; sector_rank_type?: string; score_breakdown?: Record<string, unknown>; outcome?: {version?:number} };
 };
 
 const fmt = (value: number | null, digits = 2) =>
@@ -43,6 +43,9 @@ const fmt = (value: number | null, digits = 2) =>
 
 const timeFmt = (value: string | null) =>
   value ? new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value)) : "—";
+
+const signalClock = (signal: Signal) =>
+  `${timeFmt(signal.signal_time)} IST · ${signal.metadata?.outcome?.version === 1 ? "observed confirmation" : "legacy candle time"}`;
 
 export default function Home() {
   type SortKey = "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
@@ -341,8 +344,8 @@ export default function Home() {
       <section className="desk" aria-label="Scanner decision overview">
         <div className="deskHead"><div><span className="deskKicker">TODAY AT A GLANCE</span><h2>Movement watch & confirmations</h2><p>Pre-market rows are watch candidates. Only a completed 3-minute break is a confirmed signal.</p></div><div className={health.status === "LIVE" ? "statusChip live" : "statusChip"}>{health.status === "LIVE" ? "● LIVE WORKER" : "● WORKER " + health.status}<small>Heartbeat {timeFmt(health.last_run_at)} IST</small></div></div>
         <div className="deskGrid">
-          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? preMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b><small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured · indicative only</div></div>
-          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b><small>Confirmed {timeFmt(signal.signal_time)} IST · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? preMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b><small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b><small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
         </div>
       </section>
 
@@ -479,7 +482,7 @@ export default function Home() {
             <strong>PRE-MARKET MOVEMENT WATCH · 09:00–09:08 IST</strong>
             <span>
               {preMarketSnapshotTime
-                ? `${preMarketRows.length} selected from ${preMarketSourceCount} NSE symbols · ${preMarketSnapshotCount}/9 snapshots ${preMarketStudyComplete ? "captured" : "captured so far"}${preMarketWindowStart && preMarketWindowEnd ? ` · ${timeFmt(preMarketWindowStart)}–${timeFmt(preMarketWindowEnd)} IST` : ""} · latest ${timeFmt(preMarketSnapshotTime)} IST · price gap + order pressure + repeated snapshots`
+                ? `${preMarketRows.length} selected from ${preMarketSourceCount} NSE symbols · ${preMarketSnapshotCount}/9 snapshots ${preMarketStudyComplete ? "captured" : "captured; incomplete study"}${preMarketWindowStart && preMarketWindowEnd ? ` · ${timeFmt(preMarketWindowStart)}–${timeFmt(preMarketWindowEnd)} IST` : ""} · latest ${timeFmt(preMarketSnapshotTime)} IST · price gap + order pressure + repeated snapshots`
                 : "Waiting for the next 09:00–09:08 IST snapshot · NSE indicative data only, not a BUY/SELL signal"}
             </span>
           </div>
@@ -530,7 +533,7 @@ export default function Home() {
                   <td className="symbol">{signal.symbol}</td>
                   <td><span className="setupBadge">{signal.signal_type}</span></td>
                   <td className="right num">{fmt(signal.score)}</td>
-                  <td>{timeFmt(signal.signal_time)}</td>
+                  <td>{signalClock(signal)}</td>
                   <td><span className="setupBadge">{premarket.preopen_bias || "NEUTRAL / MIXED"}</span></td>
                   <td className="right num">{premarket.indicative_gap_pct == null ? "—" : fmt(premarket.indicative_gap_pct) + "%"}</td>
                   <td className="right num">{premarket.oi_change_pct == null ? "—" : fmt(premarket.oi_change_pct) + "%"}</td>
@@ -590,7 +593,7 @@ export default function Home() {
                  const rankType = signal.metadata?.sector_rank_type;
                  const score = Number(signal.score ?? 0);
                  return <tr key={signal.id}>
-                   <td className="timeCell">{timeFmt(signal.signal_time)}</td>
+                   <td className="timeCell">{signalClock(signal)}</td>
                    <td className="symbol"><div>{signal.symbol}</div><small>{signal.metadata?.company_name ?? signal.symbol}</small></td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
                    <td><span className="tfBadge">{tf}M</span></td>
