@@ -197,8 +197,13 @@ export default function Home() {
     technicalOnlyRows.forEach(row => add(row.symbol, "TECHNICAL ONLY"));
     signals.filter(row => row.signal_state === "CONFIRMED").forEach(row => add(row.symbol, row.signal_type.toUpperCase().includes("BUY") ? "BUY CONFIRMED" : row.signal_type.toUpperCase().includes("SELL") ? "SELL CONFIRMED" : "CONFIRMED SIGNALS"));
     return [...sections.entries()]
-      .filter(([, matches]) => matches.size >= 2)
-      .map(([symbol, matches]) => ({ symbol, sections: [...matches], count: matches.size, allSections: matches.size >= 6 }))
+      .filter(([, matches]) =>
+        matches.has("NSE PRE-OPEN") &&
+        matches.has("NSE OI SPURTS") &&
+        (matches.has("TODAY'S HOT STOCKS") || matches.has("TECHNICAL ONLY")) &&
+        (matches.has("BUY CONFIRMED") || matches.has("SELL CONFIRMED"))
+      )
+      .map(([symbol, matches]) => ({ symbol, sections: [...matches], count: matches.size }))
       .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol));
   }, [preMarketRows, hotStocks, technicalOnlyRows, signals]);
 
@@ -505,11 +510,11 @@ export default function Home() {
         <div className="watchlistHead">
           <div>
             <strong>COMMON STOCKS · CROSS-SECTION MATCH</strong>
-            <span>Stocks appearing in 2 or more dashboard headings: NSE Pre-Open, NSE OI Spurts, Today's Hot Stocks, Technical Only, BUY Confirmed and SELL Confirmed.</span>
+            <span>Every stock must appear in NSE Pre-Open AND NSE OI Spurts, in Today's Hot Stocks OR Technical Only, and have a confirmed BUY OR SELL signal.</span>
           </div>
           <div className="watchlistBadge">{commonStockRows.length} common</div>
         </div>
-        {commonStockRows.length === 0 ? <div className="watchEmpty">No overlapping stocks across the available sections in the latest refresh. NSE source membership is shown only when the source returned that symbol.</div> :
+        {commonStockRows.length === 0 ? <div className="watchEmpty">No stocks meet all required matches yet: NSE Pre-Open + NSE OI Spurts + (Hot Stocks or Technical Only) + confirmed BUY or SELL.</div> :
           <div className="tableScroll" style={{maxHeight: 300}}>
             <table style={{minWidth: 850}}>
               <thead><tr><th>SYMBOL</th><th className="right">MATCHING HEADINGS</th><th>SECTIONS</th><th>STATUS</th></tr></thead>
@@ -518,7 +523,7 @@ export default function Home() {
                   <td className="symbol">{row.symbol}</td>
                   <td className="right num">{row.count}</td>
                   <td style={{whiteSpace:"normal",minWidth:350}}>{row.sections.join(" · ")}</td>
-                  <td><span className="setupBadge">{row.allSections ? "ALL 6 HEADINGS" : "CROSS-SECTION COMMON"}</span></td>
+                  <td><span className="setupBadge">ALL REQUIRED MATCHES</span></td>
                 </tr>
               ))}</tbody>
             </table>
