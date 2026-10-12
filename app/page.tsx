@@ -57,6 +57,19 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hotError, setHotError] = useState("");
+  const [preMarketError, setPreMarketError] = useState("");
+  const [health, setHealth] = useState<{status: string; last_run_at: string | null}>({status: "CHECKING", last_run_at: null});
+
+  async function loadHealth() {
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      const payload = await response.json();
+      setHealth({status: payload.status || "UNAVAILABLE", last_run_at: payload.last_run_at ?? null});
+    } catch {
+      setHealth({status: "UNAVAILABLE", last_run_at: null});
+    }
+  }
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
 
@@ -65,11 +78,14 @@ export default function Home() {
       const response = await fetch("/api/hot-stocks", { cache: "no-store" });
       const payload = await response.json();
       if (response.ok) {
+        setHotError(payload.warning || "");
         setHotStocks(payload.rows ?? []);
         setTechnicalOnlyRows(payload.technical_only_rows ?? []);
+      } else {
+        setHotError(payload.error || "Unable to load morning watchlists");
       }
     } catch {
-      // Morning hot stocks are supplemental; live confirmed signals remain independent.
+      setHotError("Morning watchlists could not refresh; displayed rows may be stale.");
     }
   }
 
@@ -78,15 +94,18 @@ export default function Home() {
       const response = await fetch("/api/pre-market-study", { cache: "no-store" });
       const payload = await response.json();
       if (response.ok) {
+        setPreMarketError("");
         setPreMarketRows(payload.rows ?? []);
         setPreMarketSnapshotTime(payload.snapshot_time ?? null);
         setPreMarketSnapshotCount(Number(payload.snapshot_count ?? 0));
         setPreMarketStudyComplete(Boolean(payload.study_complete));
         setPreMarketWindowStart(payload.window_start ?? null);
         setPreMarketWindowEnd(payload.window_end ?? null);
+      } else {
+        setPreMarketError(payload.error || "Unable to load NSE pre-market study");
       }
     } catch {
-      // This optional pre-market panel must never affect confirmed signals.
+      setPreMarketError("NSE study could not refresh; displayed rows may be stale.");
     }
   }
 
@@ -107,13 +126,16 @@ export default function Home() {
 
   useEffect(() => {
     loadSignals();
+    loadHealth();
     loadHotStocks();
     loadPreMarketStudy();
     const timer = window.setInterval(loadSignals, 5000);
+    const healthTimer = window.setInterval(loadHealth, 15000);
     const hotTimer = window.setInterval(loadHotStocks, 30000);
     const preMarketTimer = window.setInterval(loadPreMarketStudy, 30000);
     return () => {
       window.clearInterval(timer);
+      window.clearInterval(healthTimer);
       window.clearInterval(hotTimer);
       window.clearInterval(preMarketTimer);
     };
@@ -257,7 +279,7 @@ export default function Home() {
     { key: "grade", label: "GRADE" },
     { key: "sector", label: "SECTOR" },
     { key: "sector_rank", label: "SECTOR RANK", align: "right" },
-    { key: "ltp", label: "LTP", align: "right" },
+    { key: "ltp", label: "SIGNAL CLOSE", align: "right" },
     { key: "entry", label: "ENTRY", align: "right" },
     { key: "stop_loss", label: "SL", align: "right" },
     { key: "target1", label: "T1", align: "right" },
@@ -277,7 +299,7 @@ export default function Home() {
           <div className="brandRow"><div className="logoMark">P</div><div><div className="eyebrow">PRIME TECHNICAL</div><h1>Live Scanner</h1></div></div>
           <p>Real-time F&O stock scanner · 3-minute confirmed PDH / PDL breaks</p>
         </div>
-        <div className="headerRight"><div className="marketBadge"><span className="pulse" /> MARKET FEED</div><div className="refreshText">Auto refresh <b>5s</b></div></div>
+        <div className="headerRight"><div className="marketBadge" title={health.last_run_at ? "Worker heartbeat " + timeFmt(health.last_run_at) : "No verified worker heartbeat"}><span className="pulse" style={{background: health.status === "LIVE" ? "#25ce8d" : "#f5b85c", boxShadow: "none"}} /> {health.status === "LIVE" ? "FEED LIVE" : "WORKER " + health.status}</div><div className="refreshText">Auto refresh <b>5s</b></div></div>
       </header>
 
       <section className="cards">
@@ -294,12 +316,14 @@ export default function Home() {
               {item === "ALL" ? "ALL TODAY" : item === "BUY" ? "BUY CONFIRMED" : "SELL CONFIRMED"}
             </button>
           ))}</div>
-          <div className="modePill"><span className="greenDot" /> F&O · 3M · FIRST BREAK · 2× VOL</div>
+          <div className="modePill" title="New signals require strong candle, range expansion and EMA alignment. Scores are setup rankings, not win probabilities."><span className="greenDot" /> F&O · 3M · FIRST BREAK · 2× VOL</div>
         </div>
         <label className="searchBox"><span>⌕</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search symbol, company or sector…" /></label>
       </section>
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error" role="alert">{error} · Displayed signals may be stale.</div>}
+      {hotError && <div className="error" role="alert">{hotError}</div>}
+      {preMarketError && <div className="error" role="alert">{preMarketError}</div>}
 
       <section className="selectorWrap">
         <div className="selectorHead">
@@ -358,7 +382,7 @@ export default function Home() {
           <div className="watchlistBadge">{hotStocks.length} candidates</div>
         </div>
         <div className="hotSingle">
-          {hotStocks.length === 0 ? <div className="watchEmpty">Run the scanner before market open to build today's hot-stock list.</div> :
+          {hotStocks.length === 0 ? <div className="watchEmpty">No qualified news-backed candidates available. Check the worker's morning scan status.</div> :
             hotStocks.slice(0, 5).map((row, index) => (
               <div className="hotRow" key={row.id}>
                 <div className="watchRank">{index + 1}</div>

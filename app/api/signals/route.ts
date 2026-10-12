@@ -27,8 +27,7 @@ export async function GET(request: Request) {
   // Dashboard follows the scanner's exact signal window:
   // 09:15 through 10:00 IST, 3-minute confirmed standard breaks only.
   // This prevents legacy 1m/5m and later-in-the-day rows from appearing.
-  endpoint.searchParams.set("signal_time", `gte.${today}T09:15:00`);
-  endpoint.searchParams.set("signal_time", `lt.${today}T10:00:00`);
+  endpoint.searchParams.set("and", `(signal_time.gte.${today}T09:15:00+05:30,signal_time.lt.${today}T10:00:00+05:30)`);
   endpoint.searchParams.set("metadata->>timeframe", "eq.3");
   endpoint.searchParams.set("signal_state", "eq.CONFIRMED");
   endpoint.searchParams.set("setup", "eq.STANDARD BREAK");

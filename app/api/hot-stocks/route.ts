@@ -62,18 +62,19 @@ export async function GET() {
     headers: { apikey: serviceKey, Authorization: "Bearer " + serviceKey },
     cache: "no-store",
   });
+  let warning: string | null = null;
   let latestTechnicalRows: Array<{trade_date: string; created_at: string}> = [];
   if (latestTechnicalResponse.ok) {
     latestTechnicalRows = await latestTechnicalResponse.json();
   } else {
-    console.warn("Technical-only latest-date query failed:", await latestTechnicalResponse.text());
+    warning = "Technical watchlist is unavailable. Check its database migration and connection.";
   }
 
   const latestCandidate = [...latestRows, ...latestTechnicalRows]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
   if (!latestCandidate) {
     return NextResponse.json(
-      { trade_date: null, rows: [], technical_only_rows: [] },
+      { trade_date: null, rows: [], technical_only_rows: [], warning },
       { headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
@@ -114,11 +115,11 @@ export async function GET() {
     technicalOnlyRows = await technicalResponse.json();
   } else {
     // A missing optional table must not take down the live signals or hot-stock list.
-    console.warn("Technical-only watch table is unavailable:", await technicalResponse.text());
+    warning = "Technical watchlist could not load. Check its database migration and connection.";
   }
 
   return NextResponse.json(
-    { trade_date: analysisDate, rows: JSON.parse(body), technical_only_rows: technicalOnlyRows },
+    { trade_date: analysisDate, rows: JSON.parse(body), technical_only_rows: technicalOnlyRows, warning },
     { headers: { "Cache-Control": "no-store, max-age=0" } }
   );
 }

@@ -29,6 +29,7 @@ class UpstoxV3Feed:
         self._last_live_ts: dict[str, pd.Timestamp] = {}
         self._last_emitted_ts: dict[str, pd.Timestamp] = {}
         self._message_count = 0
+        self.last_data_at = 0.0
         self._last_message_log = 0.0
         self._closed = threading.Event()
 
@@ -124,6 +125,9 @@ class UpstoxV3Feed:
             ts = pd.to_datetime(
                 int(candle["ts"]), unit="ms", utc=True
             ).tz_convert("Asia/Kolkata")
+
+            if abs((pd.Timestamp.now(tz="Asia/Kolkata") - ts).total_seconds()) <= 120:
+                self.last_data_at = time.time()
 
             self._bars[instrument_key][ts] = {
                 "timestamp": ts,

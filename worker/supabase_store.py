@@ -5,6 +5,7 @@ import math
 import os
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -124,6 +125,9 @@ class SupabaseStore:
                 "trigger": result.get("trigger"),
                 "company_name": company_name or symbol,
                 "full_result": result,
+                "signal_mode": result.get("signal_mode"),
+                "scoring_version": result.get("scoring_version"),
+                "score_breakdown": result.get("score_breakdown") or {},
                 "sector": result.get("sector"),
                 "sector_change_percent": result.get("sector_change_percent"),
                 "sector_rank": result.get("sector_rank"),
@@ -191,7 +195,7 @@ class SupabaseStore:
 
     def get_morning_hot_stocks(self, trade_date: str | None = None) -> list[dict[str, Any]]:
         if not trade_date:
-            trade_date = datetime.now().date().isoformat()
+            trade_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         response = self._request(
             "GET",
             "morning_hot_stocks",
@@ -206,7 +210,7 @@ class SupabaseStore:
 
     def get_next_day_watchlist(self, target_date: str | None = None) -> list[dict[str, Any]]:
         if not target_date:
-            target_date = datetime.now().date().isoformat()
+            target_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         response = self._request(
             "GET",
             "next_day_watchlist",
@@ -221,11 +225,11 @@ class SupabaseStore:
 
     def delete_previous_days(self) -> int:
         """Delete scanner signals from dates before today."""
-        day = datetime.now().date().isoformat()
+        day = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         response = self._request(
             "DELETE",
             "scanner_signals",
-            params={"signal_time": f"lt.{day}T00:00:00"},
+            params={"signal_time": f"lt.{day}T00:00:00+05:30"},
             headers={"Prefer": "return=representation"},
         )
         try:
@@ -241,7 +245,7 @@ class SupabaseStore:
         error: str | None = None,
     ) -> None:
         now = datetime.now().astimezone().isoformat()
-        day = datetime.now().date().isoformat()
+        day = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         row = {
             "trade_date": day,
             "last_run_at": now,
@@ -294,13 +298,13 @@ class SupabaseStore:
 
     def get_today_confirmed_signals(self) -> list[dict[str, Any]]:
         """Return today's confirmed signals for one-time sector backfill."""
-        day = datetime.now().date().isoformat()
+        day = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
         response = self._request(
             "GET",
             "scanner_signals",
             params={
                 "select": "id,symbol,signal_type,score,grade,metadata,score_breakdown",
-                "signal_time": f"gte.{day}T00:00:00",
+                "signal_time": f"gte.{day}T00:00:00+05:30",
                 "signal_state": "eq.CONFIRMED",
                 "limit": "500",
             },

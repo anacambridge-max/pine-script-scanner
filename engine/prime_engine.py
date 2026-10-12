@@ -66,12 +66,20 @@ class PrimeEngine:
         else:
             ts = ts.dt.tz_convert(self.cfg.timezone)
         x["timestamp"] = ts
+        x = x.drop_duplicates("timestamp", keep="last").reset_index(drop=True)
+        values = x[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors="coerce")
+        valid = np.isfinite(values).all(axis=1)
+        valid &= values[["open", "high", "low", "close"]].gt(0).all(axis=1) & values.volume.ge(0)
+        valid &= values.high.ge(values[["open", "close", "low"]].max(axis=1))
+        valid &= values.low.le(values[["open", "close", "high"]].min(axis=1))
+        if not valid.all() or x.timestamp.isna().any():
+            raise ValueError("Invalid OHLCV data; confirmation rejected")
+        x[values.columns] = values
         return x
 
     def _levels(self, x: pd.DataFrame, context: pd.DataFrame | None = None) -> dict[str, float]:
         ts = x["timestamp"].iloc[-1]
         day = ts.date()
-        prev_day = day - pd.Timedelta(days=1)
 
         # These are derived from the supplied history. The broker layer should
         # seed enough historical data before the live scan begins.
@@ -163,7 +171,7 @@ class PrimeEngine:
         tod = ts.timetz().replace(tzinfo=None)
         start = time.fromisoformat(self.cfg.scan_start)
         end = time.fromisoformat(self.cfg.scan_end)
-        in_scan = start <= tod <= end
+        in_scan = start <= tod and (ts + pd.Timedelta(timeframe_minutes * 60, unit="s")).time() <= end
         is0915 = tod.hour == 9 and tod.minute == 15
 
         levels = self._levels(x, context)
@@ -255,8 +263,9 @@ class PrimeEngine:
             if self.cfg.break_trigger_mode == "Wick Touch":
                 already_broken = bool((session_rows["high"] >= level).any())
                 return (not already_broken) and prev.high < level and row.high >= level
-            already_broken = bool((session_rows["close"] > level).any())
-            return (not already_broken) and prev.close <= level and row.close > level
+            threshold = level * (1 + self.cfg.level_buffer_pct / 100)
+            already_broken = bool((session_rows["close"] > threshold).any())
+            return (not already_broken) and prev.close <= threshold and row.close > threshold
 
         def first_break_down(level: float) -> bool:
             if pd.isna(level):
@@ -264,8 +273,9 @@ class PrimeEngine:
             if self.cfg.break_trigger_mode == "Wick Touch":
                 already_broken = bool((session_rows["low"] <= level).any())
                 return (not already_broken) and prev.low > level and row.low <= level
-            already_broken = bool((session_rows["close"] < level).any())
-            return (not already_broken) and prev.close >= level and row.close < level
+            threshold = level * (1 - self.cfg.level_buffer_pct / 100)
+            already_broken = bool((session_rows["close"] < threshold).any())
+            return (not already_broken) and prev.close >= threshold and row.close < threshold
 
         first_buys = {
             "PDH": self.cfg.use_pd and first_break_up(levels["pdh"]),
@@ -378,7 +388,7 @@ class PrimeEngine:
                 sector_bonus = 10.0
                 sector_rank_type = "TOP 3 LOSER"
 
-        volume_score = min(40.0, max(0.0, effective_vol * 20.0))
+        volume_score = min(40.0, max(0.0, effective_vol * 10.0))
         break_score = 30.0 if (bull_confirm or bear_confirm) else 0.0
         close_quality = bull_loc if bull_confirm else bear_loc if bear_confirm else 0.0
         body_quality = min(1.0, max(0.0, body_ratio))
@@ -445,6 +455,9 @@ class PrimeEngine:
             "body_ratio": body_ratio, "close_location": bull_loc if bull else bear_loc,
             "range_expansion": range_exp, "range_expanded": range_expanded, "compression_expansion": compression_expansion,
             "prime_score": prime_score, "grade": grade,
+            "score_breakdown": score_breakdown,
+            "signal_mode": self.cfg.signal_mode,
+            "scoring_version": "quality-v2",
             "confluence": {"bull":conf_bull,"bear":conf_bear},
             "core_logic": f"{buy_name} + EXTREME VOLUME" if bull_base else f"{sell_name} + EXTREME VOLUME" if bear_base else "—",
             "blocked_by": " ".join(block) if block else "—",

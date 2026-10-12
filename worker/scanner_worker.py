@@ -7,6 +7,7 @@ import threading
 import time
 import traceback
 from typing import Any
+from datetime import timedelta
 
 import pandas as pd
 
@@ -28,7 +29,10 @@ class ScannerWorker:
             raise RuntimeError("UPSTOX_ACCESS_TOKEN is required")
 
         self.access_token = token
-        self.engine = PrimeEngine(PrimeConfig())
+        self.engine = PrimeEngine(PrimeConfig(
+            signal_mode="QUALITY PRIME", use_ema_filter=True,
+            require_follow_through=True,
+        ))
         self.supabase = SupabaseStore()
         self.instruments = load_fno_stock_instruments()
         self.instrument_map = {
@@ -61,19 +65,16 @@ class ScannerWorker:
 
     @staticmethod
     def _aggregate_ohlcv(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
-        x = df.copy().set_index("timestamp")
-        return (
-            x.resample(f"{minutes}min", origin="start_day", offset="15min")
-            .agg(
-                open=("open", "first"),
-                high=("high", "max"),
-                low=("low", "min"),
-                close=("close", "last"),
-                volume=("volume", "sum"),
-            )
-            .dropna()
-            .reset_index()
+        x = df.copy().drop_duplicates("timestamp", keep="last").set_index("timestamp").sort_index()
+        # Only regular-session candles contribute to levels and confirmation.
+        x = x.between_time("09:15", "15:29")
+        grouped = x.resample(f"{minutes}min", origin="start_day", offset=pd.Timedelta(900, unit="s"))
+        bars = grouped.agg(
+            open=("open", "first"), high=("high", "max"),
+            low=("low", "min"), close=("close", "last"), volume=("volume", "sum"),
         )
+        # Missing minutes must not be represented as a complete signal candle.
+        return bars.loc[grouped["close"].count().eq(minutes)].dropna().reset_index()
 
     @staticmethod
     def _timeframe_bar_is_closed(completed_1m_ts: pd.Timestamp, timeframe: int) -> bool:
@@ -92,7 +93,15 @@ class ScannerWorker:
 
     def _heartbeat(self, status: str = "LIVE", error: str | None = None) -> None:
         now = time.time()
-        if now - self.last_heartbeat < 25 and status == "LIVE":
+        if status == "LIVE":
+            clock = pd.Timestamp.now(tz="Asia/Kolkata")
+            from worker.hot_stocks_config import NSE_HOLIDAYS
+            trading = clock.weekday() < 5 and clock.date().isoformat() not in NSE_HOLIDAYS
+            if not trading or not ("09:15" <= clock.strftime("%H:%M") < "15:30"):
+                status = "IDLE"
+            elif now - self.feed.last_data_at > 90:
+                status = "STALE"
+        if now - self.last_heartbeat < 25 and status in {"LIVE", "IDLE", "STALE"}:
             return
         self.last_heartbeat = now
         try:
@@ -150,6 +159,11 @@ class ScannerWorker:
 
         completed_1m_ts = pd.to_datetime(one_minute["timestamp"].iloc[-1])
 
+        now = pd.Timestamp.now(tz="Asia/Kolkata")
+        age = (now - completed_1m_ts).total_seconds()
+        if completed_1m_ts.date() != now.date() or not 60 <= age <= 180:
+            return
+
         for timeframe in (3,):
             if timeframe != 1 and not self._timeframe_bar_is_closed(
                 completed_1m_ts, timeframe
@@ -161,6 +175,8 @@ class ScannerWorker:
                 if timeframe == 1
                 else self._aggregate_ohlcv(one_minute, timeframe)
             )
+            if frame.empty or frame["timestamp"].iloc[-1] + pd.Timedelta((timeframe - 1) * 60, unit="s") != completed_1m_ts:
+                continue
             if len(frame) < 30:
                 continue
 
@@ -223,11 +239,21 @@ class ScannerWorker:
     @staticmethod
     def _next_business_day(analysis_date: pd.Timestamp) -> str:
         from worker.hot_stocks_config import NSE_HOLIDAYS
-        target = analysis_date.date() + pd.Timedelta(days=1)
+        target = analysis_date.date() + timedelta(days=1)
         while target.weekday() >= 5 or target.isoformat() in NSE_HOLIDAYS:
-            target += pd.Timedelta(days=1)
+            target += timedelta(days=1)
         return target.isoformat()
 
+
+    @staticmethod
+    def _completed_session(now: pd.Timestamp) -> pd.Timestamp:
+        from worker.hot_stocks_config import NSE_HOLIDAYS
+        day = now.date()
+        if (now.hour, now.minute) < (15, 35):
+            day -= timedelta(days=1)
+        while day.weekday() >= 5 or day.isoformat() in NSE_HOLIDAYS:
+            day -= timedelta(days=1)
+        return pd.Timestamp(day, tz="Asia/Kolkata")
 
     def _run_nse_premarket_study(self) -> None:
         now = pd.Timestamp.now(tz="Asia/Kolkata")
@@ -416,6 +442,7 @@ class ScannerWorker:
                 if not valid.empty:
                     available_dates.append(valid.max())
             if not available_dates:
+                self._daily_history_cache.pop(cache_key, None)
                 return
 
             actual_date = max(available_dates)
@@ -429,6 +456,7 @@ class ScannerWorker:
                     f"[D-1] waiting for completed session {cutoff}; "
                     f"latest available session is {actual_date}"
                 )
+                self._daily_history_cache.pop(cache_key, None)
                 return
 
             key = actual_date.isoformat()
@@ -481,9 +509,9 @@ class ScannerWorker:
                 after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 35)
 
                 if not after_close:
-                    analysis_date = now.normalize() - pd.Timedelta(days=1)
+                    analysis_date = self._completed_session(now)
                 else:
-                    analysis_date = now.normalize()
+                    analysis_date = self._completed_session(now)
 
                     # After 15:35, do one authoritative Upstox V3 intraday
                     # refresh for today's complete session. This avoids relying

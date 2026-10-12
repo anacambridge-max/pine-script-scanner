@@ -42,14 +42,15 @@ export async function GET() {
   for (let offset = 0; offset < 5000; offset += pageSize) {
     const pageUrl = new URL(endpoint.toString());
     pageUrl.searchParams.set("limit", String(pageSize));
+    pageUrl.searchParams.set("offset", String(offset));
     const response = await fetch(pageUrl, {
-      headers: { ...headers, Range: `${offset}-${offset + pageSize - 1}` },
+      headers,
       cache: "no-store",
     });
     const body = await response.text();
     if (!response.ok) {
       return NextResponse.json(
-        { error: "NSE pre-market study table is unavailable. Check the nse_premarket_study migration.", details: body },
+        { error: "NSE pre-market query failed. Check the database connection and study table.", details: body },
         { status: response.status }
       );
     }
