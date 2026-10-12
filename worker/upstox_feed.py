@@ -58,6 +58,7 @@ class UpstoxV3Feed:
         return streamer
 
     def rebuild_streamer(self) -> None:
+        self.last_data_at = 0.0
         try:
             self.streamer.disconnect()
         except Exception:

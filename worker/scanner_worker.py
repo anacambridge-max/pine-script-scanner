@@ -72,9 +72,12 @@ class ScannerWorker:
         bars = grouped.agg(
             open=("open", "first"), high=("high", "max"),
             low=("low", "min"), close=("close", "last"), volume=("volume", "sum"),
+            source_count=("close", "count"),
         )
-        # Missing minutes must not be represented as a complete signal candle.
-        return bars.loc[grouped["close"].count().eq(minutes)].dropna().reset_index()
+        # Retain known historical extrema even when a minute is missing.
+        # Dropping a partial historical bar can lower PDH or raise PDL and
+        # manufacture a breakout. Live session completeness is checked below.
+        return bars.loc[bars.source_count.gt(0)].dropna().reset_index()
 
     @staticmethod
     def _timeframe_bar_is_closed(completed_1m_ts: pd.Timestamp, timeframe: int) -> bool:
@@ -177,6 +180,14 @@ class ScannerWorker:
             )
             if frame.empty or frame["timestamp"].iloc[-1] + pd.Timedelta((timeframe - 1) * 60, unit="s") != completed_1m_ts:
                 continue
+            if timeframe != 1:
+                session = frame.loc[frame["timestamp"].dt.date == completed_1m_ts.date()]
+                session_start = completed_1m_ts.replace(hour=9, minute=15, second=0, microsecond=0)
+                expected = pd.date_range(session_start, frame["timestamp"].iloc[-1], freq=f"{timeframe}min")
+                # Every candle since the open must be complete: a missing
+                # earlier candle could hide the day's actual first break.
+                if not session["source_count"].eq(timeframe).all() or not pd.DatetimeIndex(session["timestamp"]).equals(expected):
+                    continue
             if len(frame) < 30:
                 continue
 
@@ -537,6 +548,13 @@ class ScannerWorker:
         except Exception:
             pass
 
+    def _wait_for_feed_close(self) -> bool:
+        """A wait timeout is a healthy connection, not a reconnect request."""
+        while self.running:
+            if self.feed.wait_until_closed(timeout=1):
+                return True
+        return False
+
     def run(self) -> None:
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
@@ -655,7 +673,7 @@ class ScannerWorker:
                 # immediately. Wait for its actual close event before creating
                 # another streamer; rebuilding immediately causes overlapping
                 # handshakes and Upstox 403 responses.
-                self.feed.wait_until_closed()
+                self._wait_for_feed_close()
 
                 if self.running:
                     print(
@@ -664,7 +682,11 @@ class ScannerWorker:
                     )
                     self._heartbeat("RECONNECTING")
                     time.sleep(reconnect_delay)
-                    self.feed = self._new_feed()
+                    if not self.running:
+                        break
+                    # Keep seeded/live candles and emission cursors across
+                    # reconnections; replace only the disconnected transport.
+                    self.feed.rebuild_streamer()
                     reconnect_delay = min(reconnect_delay + 10, 60)
 
             except Exception as exc:
@@ -675,7 +697,7 @@ class ScannerWorker:
                 )
                 time.sleep(reconnect_delay)
                 if self.running:
-                    self.feed = self._new_feed()
+                    self.feed.rebuild_streamer()
                 reconnect_delay = min(reconnect_delay + 10, 60)
 
 
