@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter } from "./lib/market-context";
+import { buildCommonStockRows } from "./lib/cross-section";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -244,31 +245,6 @@ export default function Home() {
   const newsBySymbol = useMemo(() => new Map(hotStocks
     .filter(row => row.news_score > 0 && row.published_ist && row.news_summary)
     .map(row => [row.symbol.trim().toUpperCase(), row])), [hotStocks]);
-  const commonStockRows = useMemo(() => {
-    const sections = new Map<string, Set<string>>();
-    const add = (symbol: string | null | undefined, section: string) => {
-      const key = String(symbol || "").trim().toUpperCase();
-      if (!key) return;
-      if (!sections.has(key)) sections.set(key, new Set<string>());
-      sections.get(key)!.add(section);
-    };
-    preMarketRows.forEach(row => {
-      if (row.source_preopen) add(row.symbol, "NSE PRE-OPEN");
-      if (row.source_oi) add(row.symbol, "NSE OI SPURTS");
-    });
-    hotStocks.forEach(row => add(row.symbol, "TODAY'S HOT STOCKS"));
-    technicalOnlyRows.forEach(row => add(row.symbol, "TECHNICAL ONLY"));
-    signals.filter(row => row.signal_state === "CONFIRMED").forEach(row => add(row.symbol, row.signal_type.toUpperCase().includes("BUY") ? "BUY CONFIRMED" : row.signal_type.toUpperCase().includes("SELL") ? "SELL CONFIRMED" : "CONFIRMED SIGNALS"));
-    return [...sections.entries()]
-      .filter(([, matches]) =>
-        matches.has("NSE PRE-OPEN") &&
-        matches.has("NSE OI SPURTS") &&
-        (matches.has("TODAY'S HOT STOCKS") || matches.has("TECHNICAL ONLY")) &&
-        (matches.has("BUY CONFIRMED") || matches.has("SELL CONFIRMED"))
-      )
-      .map(([symbol, matches]) => ({ symbol, sections: [...matches], count: matches.size }))
-      .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol));
-  }, [preMarketRows, hotStocks, technicalOnlyRows, signals]);
 
 
   const preMarketConfirmedRows = useMemo(() => {
@@ -345,6 +321,15 @@ export default function Home() {
     .filter(x => x.signal.signal_type.toUpperCase().includes("SELL"))
     .sort((a,b) => b.selectorScore - a.selectorScore)
     .slice(0, 3);
+
+  const commonStockRows = useMemo(() => buildCommonStockRows(signals, [
+    {name: "PRE-MARKET MOVEMENT WATCH", symbols: preMarketRows.map(row => row.symbol)},
+    {name: "PRE-MARKET × ALIGNED CONFIRMED", symbols: preMarketConfirmedRows.map(row => row.signal.symbol)},
+    {name: "TODAY'S HOT STOCKS", symbols: hotStocks.map(row => row.symbol)},
+    {name: "TECHNICAL ONLY", symbols: technicalOnlyRows.map(row => row.symbol)},
+    {name: "TOP BUY CANDIDATES", symbols: topBuys.map(row => row.signal.symbol)},
+    {name: "TOP SELL CANDIDATES", symbols: topSells.map(row => row.signal.symbol)},
+  ]), [signals, preMarketRows, preMarketConfirmedRows, hotStocks, technicalOnlyRows, topBuys, topSells]);
 
   const columns: { key: SortKey; label: string; align?: "right" }[] = [
     { key: "signal_time", label: "TIME" },
@@ -598,11 +583,11 @@ export default function Home() {
         <div className="watchlistHead">
           <div>
             <strong>COMMON STOCKS · CROSS-SECTION MATCH</strong>
-            <span>Every stock must appear in NSE Pre-Open AND NSE OI Spurts, in Today's Hot Stocks OR Technical Only, and have a confirmed BUY OR SELL signal.</span>
+            <span>Confirmed signal + at least one other displayed section. Each distinct heading is counted once; more matches rank first.</span>
           </div>
           <div className="watchlistBadge">{commonStockRows.length} common</div>
         </div>
-        {commonStockRows.length === 0 ? <div className="watchEmpty">No stocks meet all required matches yet: NSE Pre-Open + NSE OI Spurts + (Hot Stocks or Technical Only) + confirmed BUY or SELL.</div> :
+        {commonStockRows.length === 0 ? <div className="watchEmpty">No confirmed stock appears in another section yet.</div> :
           <div className="tableScroll" style={{maxHeight: 300}}>
             <table style={{minWidth: 850}}>
               <thead><tr><th>SYMBOL</th><th className="right">MATCHING HEADINGS</th><th>SECTIONS</th><th>STATUS</th></tr></thead>
@@ -611,7 +596,7 @@ export default function Home() {
                   <td className="symbol">{row.symbol}</td>
                   <td className="right num">{row.count}</td>
                   <td style={{whiteSpace:"normal",minWidth:350}}>{row.sections.join(" · ")}</td>
-                  <td><span className="setupBadge">ALL REQUIRED MATCHES</span></td>
+                  <td><span className="setupBadge">CONFIRMED + OTHER SECTION</span></td>
                 </tr>
               ))}</tbody>
             </table>

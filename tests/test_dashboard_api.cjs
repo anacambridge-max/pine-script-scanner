@@ -215,3 +215,11 @@ test('pattern filters actually narrow confirmed stocks and require combined cand
   assert.equal(matchesPatternFilter({...signal,signal_type:'SELL',entry:98},undefined,'LOSERS'),true);
   assert.equal(matchesPatternFilter({...signal,metadata:{}},undefined,'STRONG'),false);
 });
+
+test('common stocks require confirmation plus any one distinct other heading', () => {
+  const {buildCommonStockRows} = require('../app/lib/cross-section.ts');
+  const rows=buildCommonStockRows([{symbol:'SUZLON',signal_state:'CONFIRMED'},{symbol:'IRFC',signal_state:'CONFIRMED'},{symbol:'ALONE',signal_state:'CONFIRMED'},{symbol:'WATCH',signal_state:'WATCH'}],[{name:'PRE-MARKET WATCH',symbols:[' suzlon ','SUZLON','WATCH']},{name:'ALIGNED CONFIRMED',symbols:['SUZLON']},{name:'TECHNICAL ONLY',symbols:['IRFC','WATCH']}]);
+  assert.deepEqual(rows.map(row => [row.symbol,row.count]),[['SUZLON',3],['IRFC',2]]);
+  assert.deepEqual(rows[0].sections,['CONFIRMED SIGNALS','PRE-MARKET WATCH','ALIGNED CONFIRMED']);
+  assert.deepEqual(buildCommonStockRows([{symbol:'ALONE',signal_state:'CONFIRMED'}],[]),[]);
+});
