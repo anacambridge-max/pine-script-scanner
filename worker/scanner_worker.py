@@ -244,6 +244,15 @@ class ScannerWorker:
             target += timedelta(days=1)
         return target.isoformat()
 
+    @staticmethod
+    def _previous_business_day(analysis_date: pd.Timestamp) -> pd.Timestamp:
+        """Return the latest calendar trading day before the supplied date."""
+        from worker.hot_stocks_config import NSE_HOLIDAYS
+        target = analysis_date.date() - timedelta(days=1)
+        while target.weekday() >= 5 or target.isoformat() in NSE_HOLIDAYS:
+            target -= timedelta(days=1)
+        return pd.Timestamp(target)
+
 
     @staticmethod
     def _completed_session(now: pd.Timestamp) -> pd.Timestamp:
@@ -508,20 +517,10 @@ class ScannerWorker:
                 now = pd.Timestamp.now(tz="Asia/Kolkata")
                 after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 35)
 
-                if not after_close:
-                    analysis_date = self._completed_session(now)
-                else:
-                    analysis_date = self._completed_session(now)
-
-                    # After 15:35, do one authoritative Upstox V3 intraday
-                    # refresh for today's complete session. This avoids relying
-                    # on the websocket's final post-close update and guarantees
-                    # the D-1 scan uses today's completed candles.
-                    if not refreshed_today:
-                        print("[D-1] Market close reached; daily history will include today's completed session.")
-                        # The D-1 scanner now uses Upstox V3 daily candles directly.
-                        # No heavy 1-minute refresh is needed here.
-                        refreshed_today = True
+                analysis_date = self._completed_session(now)
+                if after_close and analysis_date.date() == now.date() and not refreshed_today:
+                    print("[D-1] Market close reached; checking today's completed session.")
+                    refreshed_today = True
 
                 self._run_next_day_scan(analysis_date)
             except Exception as exc:
