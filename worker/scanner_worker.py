@@ -228,6 +228,15 @@ class ScannerWorker:
             target += pd.Timedelta(days=1)
         return target.isoformat()
 
+    @staticmethod
+    def _previous_business_day(analysis_date: pd.Timestamp) -> pd.Timestamp:
+        """Return the latest calendar trading day before the supplied date."""
+        from worker.hot_stocks_config import NSE_HOLIDAYS
+        target = analysis_date.date() - pd.Timedelta(days=1)
+        while target.weekday() >= 5 or target.isoformat() in NSE_HOLIDAYS:
+            target -= pd.Timedelta(days=1)
+        return pd.Timestamp(target)
+
 
     def _run_nse_premarket_study(self) -> None:
         now = pd.Timestamp.now(tz="Asia/Kolkata")
@@ -480,20 +489,20 @@ class ScannerWorker:
                 now = pd.Timestamp.now(tz="Asia/Kolkata")
                 after_close = now.hour > 15 or (now.hour == 15 and now.minute >= 35)
 
-                if not after_close:
-                    analysis_date = now.normalize() - pd.Timedelta(days=1)
-                else:
+                from worker.hot_stocks_config import NSE_HOLIDAYS
+                is_trading_day = now.weekday() < 5 and now.date().isoformat() not in NSE_HOLIDAYS
+                if after_close and is_trading_day:
                     analysis_date = now.normalize()
 
-                    # After 15:35, do one authoritative Upstox V3 intraday
-                    # refresh for today's complete session. This avoids relying
-                    # on the websocket's final post-close update and guarantees
-                    # the D-1 scan uses today's completed candles.
+                    # After 15:35, analyze today's completed session.
                     if not refreshed_today:
-                        print("[D-1] Market close reached; daily history will include today's completed session.")
-                        # The D-1 scanner now uses Upstox V3 daily candles directly.
-                        # No heavy 1-minute refresh is needed here.
+                        print("[D-1] Market close reached; checking today's completed session.")
                         refreshed_today = True
+                else:
+                    # Do not ask Upstox for Saturday/Sunday or a holiday as if
+                    # it were a trading session. On non-trading days, step back
+                    # to the most recent valid NSE session.
+                    analysis_date = self._previous_business_day(now.normalize())
 
                 self._run_next_day_scan(analysis_date)
             except Exception as exc:
