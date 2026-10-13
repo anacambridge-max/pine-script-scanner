@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter } from "./lib/market-context";
+import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
 
 type HotStock = {
@@ -271,56 +272,12 @@ export default function Home() {
       .sort((a, b) => Number(b.signal.score || 0) - Number(a.signal.score || 0));
   }, [preMarketRows, signals]);
 
-  type SelectorRow = {
-    signal: Signal;
-    selectorScore: number;
-    reasons: string[];
-  };
-
-  const buildSelectorRow = (signal: Signal): SelectorRow => {
-    // Remove the sector bonus already included in Prime before weighting it once.
-    // The stored Prime score can include a 10-point sector bonus, so remove
-    // that bonus before ranking, then apply current sector support once.
-    const rankType = signal.metadata?.sector_rank_type ?? "";
-    const sectorBonus = rankType === "TOP 3 GAINER" || rankType === "TOP 3 LOSER" ? 10 : 0;
-    const corePrime = Math.max(0, Math.min(100, Number(signal.score || 0) - sectorBonus));
-
-    const rvol = Number(signal.rvol || 0);
-    const rvolScore = Math.min(100, Math.max(0, ((rvol - 2) / 3) * 100));
-    const rr = Number(signal.risk_reward || 0);
-    const rrScore = Math.min(100, Math.max(0, (rr / 2) * 100));
-
-    // Second-stage selector ranks only already-confirmed signals.
-    // Fresh, directional sector support contributes ten points.
-    const support = sectorSupport(contextBySymbol.get(signal.symbol)?.sector_context, signal.signal_type);
-    const selectorScore = Math.round(
-      corePrime * 0.55 +
-      rvolScore * 0.20 +
-      rrScore * 0.15 + support.bonus
-    );
-
-    const reasons: string[] = [
-      "Core " + Math.round(corePrime),
-      "RVOL " + fmt(signal.rvol) + "×",
-      "R:R " + fmt(signal.risk_reward),
-      ...(support.bonus ? [support.label] : []),
-    ];
-    return { signal, selectorScore, reasons };
-  };
-
   const selectorRows = filtered
-    .filter(s => s.signal_state === "CONFIRMED")
-    .map(buildSelectorRow);
+    .filter(s => s.signal_state === "CONFIRMED" && ["BUY", "SELL"].includes(s.signal_type))
+    .map(signal => ({signal, ...selectionRules(signal, contextBySymbol.get(signal.symbol)?.daily_context)}));
 
-  const topBuys = selectorRows
-    .filter(x => x.signal.signal_type.toUpperCase().includes("BUY"))
-    .sort((a,b) => b.selectorScore - a.selectorScore)
-    .slice(0, 3);
-
-  const topSells = selectorRows
-    .filter(x => x.signal.signal_type.toUpperCase().includes("SELL"))
-    .sort((a,b) => b.selectorScore - a.selectorScore)
-    .slice(0, 3);
+  const topBuys = selectorRows.filter(x => x.signal.signal_type === "BUY").sort(compareSelections).slice(0, 10);
+  const topSells = selectorRows.filter(x => x.signal.signal_type === "SELL").sort(compareSelections).slice(0, 10);
 
   const commonStockRows = useMemo(() => buildCommonStockRows(signals, [
     {name: "PRE-MARKET MOVEMENT WATCH", symbols: preMarketRows.map(row => row.symbol)},
@@ -404,14 +361,14 @@ export default function Home() {
         <div className="selectorHead">
           <div>
             <strong>INTRADAY TRADE SELECTOR</strong>
-            <span>Second-stage ranking of confirmed signals · does not create new signals</span>
+            <span>Up to 10 per side from matching confirmed signals · rule priority, no score ranking · verify current chart before entry</span>
           </div>
-          <div className="selectorNote">Core setup 55% · RVOL 20% · R:R 15% · Sector alignment 10%</div>
+          <div className="selectorNote">Priority: candle quality → SL distance → saved OI/news/sector → compression/trend → volume</div>
         </div>
 
         <div className="selectorGrid">
           <div className="selectorPanel buyPanel">
-            <div className="selectorPanelTitle"><span>TOP BUY CANDIDATES</span><b>{topBuys.length}</b></div>
+            <div className="selectorPanelTitle"><span>TOP 10 BUY CANDIDATES</span><b>{topBuys.length}</b></div>
             {topBuys.length === 0 ? <div className="selectorEmpty">No BUY candidates match this filter</div> :
               topBuys.map((item, index) => (
                 <div className="selectorRow" key={item.signal.id}>
@@ -422,13 +379,13 @@ export default function Home() {
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
-                  <div className="selectorScore buyScore">{item.selectorScore}</div>
+                  <div className="selectorScore buyScore">{item.tier}</div>
                 </div>
               ))}
           </div>
 
           <div className="selectorPanel sellPanel">
-            <div className="selectorPanelTitle"><span>TOP SELL CANDIDATES</span><b>{topSells.length}</b></div>
+            <div className="selectorPanelTitle"><span>TOP 10 SELL CANDIDATES</span><b>{topSells.length}</b></div>
             {topSells.length === 0 ? <div className="selectorEmpty">No SELL candidates match this filter</div> :
               topSells.map((item, index) => (
                 <div className="selectorRow" key={item.signal.id}>
@@ -439,7 +396,7 @@ export default function Home() {
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
-                  <div className="selectorScore sellScore">{item.selectorScore}</div>
+                  <div className="selectorScore sellScore">{item.tier}</div>
                 </div>
               ))}
           </div>
@@ -724,7 +681,7 @@ export default function Home() {
         .selectorPanel { background:#0b131f; min-width:0; }
         .selectorPanelTitle { display:flex; justify-content:space-between; align-items:center; padding:9px 13px; color:#71829a; font-size:9px; font-weight:800; letter-spacing:.7px; }
         .selectorPanelTitle b { color:#9eabc0; font-size:9px; }
-        .selectorRow { display:grid; grid-template-columns:28px minmax(105px,160px) 1fr 42px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
+        .selectorRow { display:grid; grid-template-columns:28px minmax(105px,160px) 1fr 75px; gap:9px; align-items:center; padding:9px 12px; border-top:1px solid #162233; }
         .selectorRank { width:23px; height:23px; display:grid; place-items:center; border-radius:6px; background:#141f2e; color:#9eabc0; font-size:9px; font-weight:900; }
         .selectorSymbol strong { display:block; color:#edf2f8; font-size:10px; }
         .selectorSymbol small { display:block; margin-top:2px; color:#61728a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }

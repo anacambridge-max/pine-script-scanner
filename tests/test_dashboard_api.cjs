@@ -223,3 +223,15 @@ test('common stocks require confirmation plus any one distinct other heading', (
   assert.deepEqual(rows[0].sections,['CONFIRMED SIGNALS','PRE-MARKET WATCH','ALIGNED CONFIRMED']);
   assert.deepEqual(buildCommonStockRows([{symbol:'ALONE',signal_state:'CONFIRMED'}],[]),[]);
 });
+
+test('trade selection uses candle/risk rules rather than stored scores or extreme volume', () => {
+  const {selectionRules, compareSelections} = require('../app/lib/trade-selection.ts');
+  const candidate = (symbol, score, body, location, rvol, stop) => ({symbol, score, signal_type:'BUY', signal_state:'CONFIRMED', entry:100, stop_loss:stop, rvol, metadata:{full_result:{body_ratio:body,close_location:location}}});
+  const good = candidate('GOOD',20,.8,.9,4,99);
+  const weak = candidate('WEAK',99,.3,.55,30,95);
+  const rows=[weak,good].map(signal=>({signal,...selectionRules(signal)})).sort(compareSelections);
+  assert.equal(rows[0].signal.symbol,'GOOD');
+  assert.equal(rows[0].tier,'CLEAN SETUP');
+  assert.equal(selectionRules(candidate('INVALID',100,.8,.9,5,101)).tier,'REVIEW SETUP');
+  assert.equal(selectionRules(candidate('MISSING',100,undefined,undefined,5,99)).priority[0],-1);
+});
