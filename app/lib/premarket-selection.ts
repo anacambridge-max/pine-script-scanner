@@ -27,7 +27,7 @@ export function selectMovementCandidates(allRows: StudyRow[], latestSnapshot: st
     const buy = finite(latest.buy_qty);
     const sell = finite(latest.sell_qty);
     if (gap === null || price === null || price <= 0 || buy === null || sell === null || buy < 0 || sell < 0) continue;
-    if (Math.abs(gap) < 0.75 || Math.abs(gap) > 8 || buy + sell < 1000 || (buy + sell) * price < 1_000_000) continue;
+    if (Math.abs(gap) < 0.75 || Math.abs(gap) > 10 || buy + sell < 1000 || (buy + sell) * price < 1_000_000) continue;
     const direction = gap > 0 ? 1 : -1;
     const share = buy / (buy + sell);
     if (direction === 1 ? share < 0.60 : share > 0.40) continue;

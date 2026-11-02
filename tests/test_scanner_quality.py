@@ -80,6 +80,35 @@ def test_quality_confirmation_rejects_weak_candle():
     assert PrimeEngine(cfg).evaluate(df, 3)["state"] != "CONFIRMED"
 
 
+def test_opening_impulse_allows_later_first_pdh_break_without_weakening_break_rule():
+    previous = pd.DataFrame({
+        "timestamp": pd.date_range("2026-10-09 09:15", periods=40, freq="3min", tz="Asia/Kolkata"),
+        "open": 99.5, "high": 100., "low": 99., "close": 99.5, "volume": 1000.,
+    })
+    current = pd.DataFrame({
+        "timestamp": pd.date_range("2026-10-12 09:15", periods=6, freq="3min", tz="Asia/Kolkata"),
+        "open": [99.2, 99.8, 99.7, 99.7, 99.7, 99.8],
+        "high": [99.9, 99.9, 99.9, 99.9, 99.9, 100.3],
+        "low": [99.0, 99.6, 99.6, 99.6, 99.6, 99.8],
+        "close": [99.8, 99.7, 99.7, 99.7, 99.7, 100.2],
+        "volume": [8000., 1000., 1000., 1000., 1000., 4000.],
+    })
+    frame = pd.concat([previous, current], ignore_index=True)
+    cfg = PrimeConfig(signal_mode="QUALITY PRIME", use_ema_filter=True,
+                      require_follow_through=True, opening_impulse_range_exception=True)
+    engine = PrimeEngine(cfg)
+    assert engine.evaluate(frame.iloc[:-1], 3)["state"] != "CONFIRMED"
+    result = engine.evaluate(frame, 3)
+    assert result["state"] == "CONFIRMED"
+    assert result["direction"] == "BUY"
+    assert result["opening_impulse_range_exception"] is True
+    assert PrimeEngine(PrimeConfig(signal_mode="QUALITY PRIME", use_ema_filter=True,
+                                   require_follow_through=True)).evaluate(frame, 3)["state"] != "CONFIRMED"
+    current.loc[0, "volume"] = 1000.
+    weak_open = pd.concat([previous, current], ignore_index=True)
+    assert engine.evaluate(weak_open, 3)["state"] != "CONFIRMED"
+
+
 def test_invalid_prices_are_rejected():
     df = candles()
     df.loc[df.index[-1], "high"] = 98.0

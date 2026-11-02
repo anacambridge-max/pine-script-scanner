@@ -22,6 +22,8 @@ class PrimeConfig:
     minimum_body_ratio: float = 0.50
     minimum_close_location: float = 0.60
     range_expansion_ratio: float = 1.30
+    opening_impulse_range_exception: bool = False
+    opening_impulse_volume_multiple: float = 5.0
     range_average_length: int = 10
     compression_lookback: int = 3
 

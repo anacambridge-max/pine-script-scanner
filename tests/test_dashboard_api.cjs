@@ -177,6 +177,8 @@ test('movement watch requires repeated aligned gap and liquid order pressure', (
   assert.deepEqual(selected.map(row => row.symbol).sort(), ['DOWN', 'UP']);
   assert.equal(selected.find(row => row.symbol === 'UP').movement_direction, 'UP WATCH');
   assert.equal(selected.find(row => row.symbol === 'DOWN').movement_direction, 'DOWN WATCH');
+  const largeGap = [make('LARGE', 5, 10, 16000, 6000), make('LARGE', 6, 10, 16000, 6000), make('LARGE', 7, 8.81, 16000, 6000)];
+  assert.equal(selectMovementCandidates(largeGap, '2026-10-12T03:37:00+00:00')[0]?.symbol, 'LARGE');
 });
 
 test('sector support ranks gainers and losers separately and rejects stale context', () => {

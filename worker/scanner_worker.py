@@ -33,7 +33,7 @@ class ScannerWorker:
         self.access_token = token
         self.engine = PrimeEngine(PrimeConfig(
             signal_mode="QUALITY PRIME", use_ema_filter=True,
-            require_follow_through=True,
+            require_follow_through=True, opening_impulse_range_exception=True,
         ))
         self.supabase = SupabaseStore()
         self.instruments = load_fno_stock_instruments()

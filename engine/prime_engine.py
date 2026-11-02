@@ -216,6 +216,25 @@ class PrimeEngine:
         prev_compressed = bool(pd.notna(prev_avg) and (x.high.iloc[-2]-x.low.iloc[-2]) < prev_avg*.80)
         compression_expansion = range_expanded and prev_compressed
 
+        # A strong completed 09:15 3M impulse may precede the first PDH/PDL
+        # close-break. Keep the real break, volume and candle checks on the
+        # current bar; waive only the redundant range-expansion threshold.
+        opening_impulse_buy = opening_impulse_sell = False
+        if self.cfg.opening_impulse_range_exception and timeframe_minutes == 3 and not is0915:
+            opening_rows = x[(x.timestamp.dt.date == ts.date()) &
+                             (x.timestamp.dt.hour == 9) & (x.timestamp.dt.minute == 15)]
+            if not opening_rows.empty:
+                opening = opening_rows.iloc[0]
+                opening_range = float(opening.high - opening.low)
+                baseline = x[x.timestamp < opening.timestamp].volume.tail(self.cfg.volume_length).mean()
+                opening_multiple = float(opening.volume / baseline) if pd.notna(baseline) and baseline > 0 else 0.0
+                if opening_range > 0 and opening_multiple >= self.cfg.opening_impulse_volume_multiple:
+                    opening_body = abs(float(opening.close - opening.open)) / opening_range
+                    opening_impulse_buy = bool(opening.close > opening.open and opening_body >= 0.60 and
+                                               (opening.close - opening.low) / opening_range >= 0.70)
+                    opening_impulse_sell = bool(opening.close < opening.open and opening_body >= 0.60 and
+                                                (opening.high - opening.close) / opening_range >= 0.70)
+
         def up(v): return self._cross_up(row.close,row.high,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
         def dn(v): return self._cross_down(row.close,row.low,v,self.cfg.break_trigger_mode,self.cfg.level_buffer_pct)
 
@@ -330,8 +349,8 @@ class PrimeEngine:
         )
 
         if self.cfg.signal_mode == "QUALITY PRIME":
-            standard_bull &= strong_bull and range_expanded
-            standard_bear &= strong_bear and range_expanded
+            standard_bull &= strong_bull and (range_expanded or opening_impulse_buy)
+            standard_bear &= strong_bear and (range_expanded or opening_impulse_sell)
 
         active_buy_level = levels[level_key_map[buy_name]] if buy_name != "NONE" else np.nan
         active_sell_level = levels[level_key_map[sell_name]] if sell_name != "NONE" else np.nan
@@ -462,6 +481,7 @@ class PrimeEngine:
             "volume_multiple": effective_vol, "volume_tier": "EXTREME" if extreme else "PASS" if standard_vol_ok else "NORMAL",
             "body_ratio": body_ratio, "close_location": bull_loc if bull else bear_loc,
             "range_expansion": range_exp, "range_expanded": range_expanded, "compression_expansion": compression_expansion,
+            "opening_impulse_range_exception": bool((bull_confirm and opening_impulse_buy or bear_confirm and opening_impulse_sell) and not range_expanded),
             "prime_score": prime_score, "grade": grade,
             "score_breakdown": score_breakdown,
             "signal_mode": self.cfg.signal_mode,

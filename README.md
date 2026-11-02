@@ -78,6 +78,16 @@ engine for explicit comparisons. A score is a setup ranking, not a win probabili
 volume points now scale from 20 at 2× to 40 at 4× rather than saturating at 2×.
 Validate these stricter rules on historical data before claiming a better hit rate.
 
+The live worker permits one narrow exception to the 1.3× range-expansion rule:
+if the completed 09:15 three-minute candle has at least 5× volume, a 60% body,
+and a directional close in the outer 30%, a later first PDH/PDL close-break can
+confirm without range expansion. The break candle still needs at least 2×
+volume, 50% body, 60% directional close, EMA alignment and follow-through.
+This captures strong opening participation followed by a genuine level break;
+an opening watch alone never becomes a confirmed signal. Pre-market movement
+watch now accepts indicative gaps up to 10%, still requiring repeated aligned
+snapshots and order pressure. Historic signals are not relabelled retroactively.
+
 The worker rejects incomplete three-minute candles and delayed/replayed bars.
 Signals show the candle's start time; confirmation happens after its close.
 SIGNAL CLOSE is the recorded signal price, not a current market quote.
