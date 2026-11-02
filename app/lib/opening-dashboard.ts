@@ -32,7 +32,12 @@ export function selectOpeningLeaders(rows: MarketContextRow[], signals: SignalLi
     const direction = up ? 'UP WATCH' : 'DOWN WATCH';
     const location = up ? bar.close_location : 1 - bar.close_location;
     const volume = bar.volume_multiple;
-    if (volume < 3 || bar.body_ratio < .35 || location < .7 || Math.abs(bar.move_pct) < .5) continue;
+    // A large opening gap can produce a moderate body even when volume and
+    // the final close show real participation. Keep it as a watch candidate.
+    const gapDriven = Math.abs(bar.gap_pct) >= 2 && Math.sign(bar.gap_pct) === (up ? 1 : -1) &&
+      volume >= 10 && bar.body_ratio >= .3 && location >= .65;
+    if (volume < 3 || Math.abs(bar.move_pct) < .5 ||
+        !gapDriven && (bar.body_ratio < .35 || location < .7)) continue;
     const sector = sectorSupport(row.sector_context, direction, now);
     const alignedPreMarket = premarketDirections.has(`${row.symbol}|${direction}`);
     const confirmedSignal = confirmed.has(`${row.symbol}|${up ? 'BUY' : 'SELL'}`);
@@ -47,12 +52,13 @@ export function selectOpeningLeaders(rows: MarketContextRow[], signals: SignalLi
       Math.min(15, location * 15) + Math.min(10, Math.abs(bar.move_pct) * 4) +
       sector.bonus + (alignedPreMarket ? 5 : 0) + (compression ? 5 : 0) + (freshNews ? 5 : 0)
     ));
-    const tier = volume >= 10 && bar.body_ratio >= .55 && location >= .8 ? 'EXPLOSIVE' :
+    const tier = volume >= 10 && bar.body_ratio >= .55 && location >= .8 || gapDriven && volume >= 15 ? 'EXPLOSIVE' :
       volume >= 6 && bar.body_ratio >= .5 ? 'STRONG' : 'SPURT';
     const reasons = [
       `${volume.toFixed(1)}× opening volume`,
       `${Math.round(bar.body_ratio * 100)}% body`,
       alignedPreMarket ? 'Pre-market aligned' : null,
+      gapDriven ? 'Gap-led opening volume' : null,
       compression ? 'Prior-day compression' : null,
       freshNews ? 'Fresh headline' : null,
     ].filter(Boolean) as string[];

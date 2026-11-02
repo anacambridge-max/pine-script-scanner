@@ -210,6 +210,23 @@ test('opening shortlist rejects weak candles and links only aligned confirmation
   assert.equal(marketBreadth(rows,218,new Date('2026-11-02T09:25:00+05:30')).label,'QUOTES STALE');
 });
 
+test('gap-led opening watch keeps DELHIVERY-shaped extreme volume without treating it as a strong candle', () => {
+  const {selectOpeningLeaders} = require('../app/lib/opening-dashboard.ts');
+  const now = new Date('2026-11-02T09:20:00+05:30');
+  const opening = {status:'READY',timestamp:'2026-11-02T09:15:00+05:30',open:400,close:402.85,
+    gap_pct:3.63,move_pct:4.37,volume_multiple:34.7,body_ratio:.373,close_location:.693};
+  const row = {symbol:'DELHIVERY',daily_context:{status:'READY',compression:false},sector_context:{},
+    market_evidence:{opening,news:[]}};
+  const signal = {symbol:'DELHIVERY',signal_type:'BUY',signal_state:'CONFIRMED'};
+  const selected = selectOpeningLeaders([row],[signal],[],now);
+  assert.equal(selected.length,1);
+  assert.equal(selected[0].confirmed,true);
+  assert.equal(selected[0].tier,'EXPLOSIVE');
+  assert.ok(selected[0].reasons.includes('Gap-led opening volume'));
+  assert.equal(selectOpeningLeaders([{...row,market_evidence:{opening:{...opening,close_location:.6},news:[]}}],[signal],[],now).length,0);
+  assert.equal(selectOpeningLeaders([{...row,market_evidence:{opening:{...opening,volume_multiple:4},news:[]}}],[signal],[],now).length,0);
+});
+
 test('confirmed movement tags require full daily boundary and never use later OI/news', () => {
   const {confirmedPatternHint} = require('../app/lib/market-context.ts');
   const signal = {signal_state:'CONFIRMED',signal_type:'BUY',entry:105,rvol:3,metadata:{daily_context:{status:'READY',nr7:true,nr4:true,compression:true,pdh:104,pdl:99,trend:'DOWNTREND'},full_result:{body_ratio:.8,close_location:.9}}};

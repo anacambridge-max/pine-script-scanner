@@ -91,7 +91,7 @@ export default function Home() {
   const [preMarketWindowStart, setPreMarketWindowStart] = useState<string | null>(null);
   const [preMarketWindowEnd, setPreMarketWindowEnd] = useState<string | null>(null);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
-  const [patternFilter, setPatternFilter] = useState<PatternFilter>("STRONG");
+  const [patternFilter, setPatternFilter] = useState<PatternFilter>("ALL");
   const patternOptions: {value: PatternFilter; label: string}[] = [
     {value: "STRONG", label: "Strong combined setups"},
     {value: "MOVERS", label: "All potential movers"},
@@ -335,7 +335,7 @@ export default function Home() {
           <div className="rotationCard"><div className="openingContextTitle">SECTOR ROTATION <span>{rotatingSectors.length} mapped sectors</span></div>{rotatingSectors.length ? rotatingSectors.slice(0, 5).map((sector, index) => <div className="rotationRow" key={sector.sector}><span>{index + 1}. {sector.sector}</span><b className={sector.change >= 0 ? "up" : "down"}>{sector.change >= 0 ? "+" : ""}{fmt(sector.change)}%</b></div>) : <div className="deskEmpty">Sector quotes are not available yet.</div>}</div>
         </div>
         <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
-        <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
+        <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Gap-led exception: ≥2% same-direction gap, ≥10× volume, ≥30% body and ≥65% directional close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
