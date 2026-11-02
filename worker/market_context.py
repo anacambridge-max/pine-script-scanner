@@ -14,6 +14,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from engine.daily_context import daily_context
+from worker.opening_study import opening_candle_evidence
 
 
 def number(value) -> float | None:
@@ -135,6 +136,12 @@ class MarketContext:
             key, symbol = instrument["instrument_key"], instrument["trading_symbol"]
             daily = self.daily.get(key, {"status": "MISSING"})
             quote = quotes.get(key, {})
+            opening = opening_candle_evidence(
+                self.worker.feed._bars.get(key, {}).copy(),
+                self.worker.feed._last_emitted_ts.get(key),
+                now,
+                daily.get("previous_close"),
+            ) if now.hour * 60 + now.minute >= 9 * 60 + 16 else {"status": "PENDING"}
             # Generated quote timestamp is insufficient: verify the OHLC session.
             session_ts = (quote.get("ohlc") or {}).get("ts")
             quote_day = pd.to_datetime(session_ts, unit="ms", utc=True).tz_convert("Asia/Kolkata").date().isoformat() if session_ts else None
@@ -172,6 +179,7 @@ class MarketContext:
             rows.append({"trade_date": day, "symbol": symbol, "instrument_key": key,
                 "observed_at": now.isoformat(), "daily_context": daily, "sector_context": sector,
                 "market_evidence": {"candle": candle, "oi": oi, "news": headlines[:5],
+                    "opening": opening,
                     "quote_time": quote.get("timestamp"), "volume_vs_daily20": volume_ratio,
                     "news_status": "MATCHED" if headlines else "NO VERIFIED MATCH IN FETCHED COVERAGE"}})
         self.worker.supabase.write_market_context(rows)

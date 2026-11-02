@@ -1,7 +1,7 @@
 export type DailyContext = {
   status: string; analysis_date?: string; nr4?: boolean; nr7?: boolean; narrow_pd?: boolean;
   compression?: boolean; pdh?: number; pdl?: number; range_pct?: number; range_vs_prior20?: number | null;
-  trend?: string; labels?: string[]; body_ratio?: number; close_location?: number;
+  trend?: string; labels?: string[]; body_ratio?: number; close_location?: number; previous_close?: number;
 };
 
 export type MovementEvidence = {confirmed_at: string; observed_at: string; oi?: {label?: string}; news?: {impact: string; published_at: string; title: string}[]};
@@ -52,6 +52,7 @@ export type MarketContextRow = {
   symbol: string; observed_at: string; daily_context: DailyContext; sector_context: SectorContext;
   market_evidence: {
     candle: {status: string; change_pct?: number; gap_pct?: number; body_ratio?: number; close_location?: number; labels?: string[]};
+    opening?: {status: string; timestamp?: string; previous_close?: number; open?: number; high?: number; low?: number; close?: number; volume?: number; gap_pct?: number; move_pct?: number; body_ratio?: number; close_location?: number; volume_multiple?: number | null; baseline_bars?: number; baseline_session?: string | null; volume_reference?: string};
     oi: {label: string; change_pct?: number | null; futures_price_change_pct?: number | null; contract?: string | null; quote_time?: string | null};
     news: {title: string; url: string; published_at: string; context?: string; impact: string}[];
     quote_time?: string; volume_vs_daily20?: number | null; news_status?: string;

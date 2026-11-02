@@ -622,6 +622,7 @@ class ScannerWorker:
         # a 60-day minute-history bootstrap.
         print("Seeding 3 calendar days of 1-minute history for the live 3M engine...")
         self.feed.seed_history(days=3)
+        self.feed.seed_current_session()
         self._heartbeat("HISTORY_READY")
 
         # Start D-1 analysis only after the full minute-history seed is ready.

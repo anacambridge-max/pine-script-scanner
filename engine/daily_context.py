@@ -61,6 +61,7 @@ def daily_context(history: pd.DataFrame, trade_date, narrow_ratio: float = 0.65)
         "nr4": bool(nr4), "nr7": bool(nr7), "narrow_pd": bool(narrow),
         "compression": bool(nr4 or nr7 or narrow), "inside_day": bool(inside),
         "pdh": float(row.high), "pdl": float(row.low), "range": width,
+        "previous_close": float(row.close),
         "range_pct": width / float(row.close) * 100,
         "range_vs_prior20": relative, "narrow_threshold": narrow_ratio,
         "body_ratio": body, "upper_wick_ratio": upper, "lower_wick_ratio": lower,

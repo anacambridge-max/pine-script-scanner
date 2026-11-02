@@ -235,6 +235,42 @@ class UpstoxV3Feed:
             except Exception as exc:
                 print(f"Historical seed failed for {instrument_key}: {exc}")
 
+    def seed_current_session(self, now: pd.Timestamp | None = None) -> None:
+        """Backfill today's closed 1-minute bars when the worker starts late.
+
+        Upstox's dated historical endpoint excludes today's session. The
+        separate intraday endpoint is required after the market opens.
+        """
+        now = now or pd.Timestamp.now(tz="Asia/Kolkata")
+        if now.weekday() >= 5 or (now.hour, now.minute) < (9, 16):
+            return
+        cutoff = now.floor("min")
+        session_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {self.access_token}"}
+        loaded, failed = 0, 0
+        for instrument_key in self.instrument_keys:
+            encoded = requests.utils.quote(instrument_key, safe="")
+            url = f"https://api.upstox.com/v3/historical-candle/intraday/{encoded}/minutes/1"
+            try:
+                response = requests.get(url, headers=headers, timeout=15)
+                response.raise_for_status()
+                count = 0
+                for candle in response.json().get("data", {}).get("candles", []):
+                    if len(candle) < 6:
+                        continue
+                    ts = pd.to_datetime(candle[0], utc=True).tz_convert("Asia/Kolkata")
+                    if ts.date() != now.date() or ts < session_start or ts >= cutoff:
+                        continue
+                    self._bars[instrument_key][ts] = {
+                        "timestamp": ts, "open": float(candle[1]), "high": float(candle[2]),
+                        "low": float(candle[3]), "close": float(candle[4]), "volume": float(candle[5]),
+                    }
+                    count += 1
+                loaded += bool(count)
+            except Exception:
+                failed += 1
+        print(f"[INTRADAY BACKFILL] {loaded}/{len(self.instrument_keys)} instruments; failed={failed}")
+
     def get_daily_histories(
         self,
         lookback_days: int = 60,

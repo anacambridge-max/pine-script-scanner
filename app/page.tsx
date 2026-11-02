@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter } from "./lib/market-context";
 import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
+import { marketBreadth, sectorRotation, selectOpeningLeaders } from "./lib/opening-dashboard";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -105,7 +106,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [hotError, setHotError] = useState("");
   const [preMarketError, setPreMarketError] = useState("");
-  const [health, setHealth] = useState<{status: string; last_run_at: string | null}>({status: "CHECKING", last_run_at: null});
+  const [health, setHealth] = useState<{status: string; last_run_at: string | null; universe_count: number}>({status: "CHECKING", last_run_at: null, universe_count: 0});
   const [performance, setPerformance] = useState<{tracked:number; complete:number; pending:number; firstHit:{target:number;stop:number;ambiguous:number;neither:number}; medianReturnPct:Record<string,number|null>; scoreBands:Array<{label:string;sample:number;medianReturn60Pct:number|null}>; sufficientSample:boolean} | null>(null);
 
   async function loadPerformance() {
@@ -119,13 +120,16 @@ export default function Home() {
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
       const payload = await response.json();
-      setHealth({status: payload.status || "UNAVAILABLE", last_run_at: payload.last_run_at ?? null});
+      setHealth({status: payload.status || "UNAVAILABLE", last_run_at: payload.last_run_at ?? null, universe_count: Number(payload.universe_count || 0)});
     } catch {
-      setHealth({status: "UNAVAILABLE", last_run_at: null});
+      setHealth({status: "UNAVAILABLE", last_run_at: null, universe_count: 0});
     }
   }
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
+  const openingLeaders = useMemo(() => selectOpeningLeaders(marketContext, signals, preMarketRows), [marketContext, signals, preMarketRows]);
+  const breadth = useMemo(() => marketBreadth(marketContext, health.universe_count || marketContext.length), [marketContext, health.universe_count]);
+  const rotatingSectors = useMemo(() => sectorRotation(marketContext), [marketContext]);
 
   async function loadHotStocks() {
     try {
@@ -322,6 +326,16 @@ export default function Home() {
         <div className="card buy"><div className="cardTop"><span>BUY CONFIRMED</span><span className="miniIcon">↗</span></div><strong>{buys}</strong><small>PDH close-break</small></div>
         <div className="card sell"><div className="cardTop"><span>SELL CONFIRMED</span><span className="miniIcon">↘</span></div><strong>{sells}</strong><small>PDL close-break</small></div>
         <div className="card"><div className="cardTop"><span>AVG SCORE</span><span className="miniIcon">★</span></div><strong>{avgScore}</strong><small>{topSector ? `Top signal sector: ${topSector}` : "Waiting for sector data"}</small></div>
+      </section>
+
+      <section className="openingDesk" aria-label="One-minute opening leaders and market breadth">
+        <div className="openingHead"><div><span className="deskKicker">OPENING ACTIVITY · 09:15 IST</span><h2>Daily movement shortlist</h2><p>Completed 1-minute candle, volume versus the previous session’s first 15 minutes, price action and sector context. Watch candidates only; confirmed signals stay separate.</p></div><span className="openingCount">{openingLeaders.length} selected</span></div>
+        <div className="openingContext">
+          <div className="breadthCard"><div className="openingContextTitle">MARKET BREADTH <span>{breadth.label}</span></div><div className="breadthNumbers"><b className="up">{breadth.advances}<small>UP</small></b><b>{breadth.unchanged}<small>FLAT</small></b><b className="down">{breadth.declines}<small>DOWN</small></b><b>{breadth.ratio == null ? "—" : fmt(breadth.ratio)}<small>A:D</small></b></div><div className="breadthBar"><i style={{width: breadth.covered ? `${breadth.advances / breadth.covered * 100}%` : "0%"}} /><em style={{width: breadth.covered ? `${breadth.declines / breadth.covered * 100}%` : "0%"}} /></div><small className="openingNote">{breadth.covered}/{breadth.universe || "—"} F&amp;O stocks with today’s quote · partial coverage is marked above</small></div>
+          <div className="rotationCard"><div className="openingContextTitle">SECTOR ROTATION <span>{rotatingSectors.length} mapped sectors</span></div>{rotatingSectors.length ? rotatingSectors.slice(0, 5).map((sector, index) => <div className="rotationRow" key={sector.sector}><span>{index + 1}. {sector.sector}</span><b className={sector.change >= 0 ? "up" : "down"}>{sector.change >= 0 ? "+" : ""}{fmt(sector.change)}%</b></div>) : <div className="deskEmpty">Sector quotes are not available yet.</div>}</div>
+        </div>
+        <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
+        <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
@@ -616,6 +630,37 @@ export default function Home() {
         :global(.sectorSupport) { display:block; font-size:10px; margin-top:5px; color:#8da0b9; } :global(.sectorSupport.supported) { color:#f5ce79; font-weight:800; padding:4px 7px; border:1px solid #6a562c; border-radius:5px; background:#302719; width:fit-content; }
         .contextNews a { display:block; margin:8px 0; font-size:11px; line-height:1.5; color:#88c9f5; } .contextNews small { display:block; }
         @media(max-width:700px) { .contextGrid {grid-template-columns:1fr;} }
+        .openingDesk { max-width:1680px; margin:0 auto 14px; padding:18px; border:1px solid #2b4659; border-radius:16px; background:linear-gradient(135deg,#102c35,#0c1726 48%,#101c2b); }
+        .openingHead { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:15px; }
+        .openingHead h2 { margin:5px 0; font-size:21px; letter-spacing:-.5px; }
+        .openingHead p { margin:0; color:#9db3c7; font-size:12px; line-height:1.5; }
+        .openingCount { flex:none; padding:7px 11px; border:1px solid #397569; border-radius:20px; color:#70dfbd; font-size:11px; font-weight:800; }
+        .openingContext { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:13px; }
+        .breadthCard,.rotationCard,.openingColumn { background:#0a1623; border:1px solid #274055; border-radius:11px; overflow:hidden; }
+        .breadthCard,.rotationCard { padding:12px 14px; }
+        .openingContextTitle { display:flex; justify-content:space-between; gap:8px; color:#dce9f4; font-size:11px; font-weight:800; letter-spacing:.5px; }
+        .openingContextTitle span { color:#80cbb8; font-size:10px; letter-spacing:0; }
+        .breadthNumbers { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:13px 0; }
+        .breadthNumbers b { font-size:20px; } .breadthNumbers small { display:block; color:#8fa7b8; font-size:10px; font-weight:600; }
+        .openingDesk .up { color:#55d9a6; } .openingDesk .down { color:#ff7e93; }
+        .breadthBar { display:flex; justify-content:space-between; height:7px; border-radius:8px; background:#324257; overflow:hidden; }
+        .breadthBar i { background:#2dc58f; } .breadthBar em { background:#ed677c; }
+        .openingNote { display:block; margin-top:9px; color:#829aaf; font-size:10px; line-height:1.5; }
+        .rotationRow { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid #1f3345; color:#bfcfe1; font-size:11px; }
+        .rotationRow:first-of-type { margin-top:8px; } .rotationRow b { white-space:nowrap; }
+        .openingColumns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+        .openingColumnTitle { display:flex; justify-content:space-between; padding:11px 13px; font-size:12px; font-weight:900; letter-spacing:.8px; }
+        .openingColumnTitle.explosive { background:#124d3d; color:#9bffcf; } .openingColumnTitle.strong { background:#224675; color:#b6d5ff; } .openingColumnTitle.spurt { background:#65431b; color:#ffe1a5; }
+        .openingColumnTitle span { opacity:.8; }
+        .openingItem { padding:12px 13px; border-top:1px solid #203549; }
+        .openingItemTop { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+        .openingItemTop strong { font-size:13px; color:#f1f7ff; } .openingItemTop b { font-size:13px; }
+        .openingItemTags { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+        .openingItemTags span,.openingSector,.openingConfirmed { display:inline-block; padding:4px 6px; border:1px solid #345167; border-radius:5px; color:#a9c1d5; font-size:10px; }
+        .openingItem p { margin:8px 0 0; color:#8fa8bd; font-size:10px; }
+        .openingSector { margin:7px 5px 0 0; border-color:#497b60; color:#8fe4ae; }
+        .openingConfirmed { margin:7px 0 0; border-color:#496993; color:#a9ccff; }
+        .openingFooter { margin-top:13px; }
         .desk,.evidence,.detailGroup { max-width:1680px; margin:0 auto 14px; border:1px solid #24364d; border-radius:16px; background:#0c1624; overflow:hidden; }
         .desk { padding:18px; background:linear-gradient(140deg,#10213a,#0b1523 50%,#10192a); }
         .deskHead { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:16px; }
@@ -742,7 +787,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
       `}</style>
     </main>
   );

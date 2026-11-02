@@ -189,6 +189,27 @@ test('market context filters today and returns usable evidence shape', async () 
   }
 });
 
+test('opening shortlist rejects weak candles and links only aligned confirmations', () => {
+  const {selectOpeningLeaders, marketBreadth, sectorRotation} = require('../app/lib/opening-dashboard.ts');
+  const now = new Date('2026-11-02T09:18:00+05:30');
+  const base = {symbol:'DEMO', observed_at:'2026-11-02T09:17:00+05:30', daily_context:{status:'READY',compression:true},
+    sector_context:{sector:'NIFTY AUTO',sector_change:1.8,sector_gainer_rank:1,sector_observed_at:'2026-11-02T09:17:00+05:30',sector_fresh:true},
+    market_evidence:{opening:{status:'READY',timestamp:'2026-11-02T09:15:00+05:30',open:101,close:102,volume_multiple:12,gap_pct:1,move_pct:2,body_ratio:.75,close_location:.9},candle:{status:'READY',change_pct:2},news:[]}};
+  const rows = [base,{...base,symbol:'WEAK',market_evidence:{...base.market_evidence,opening:{...base.market_evidence.opening,body_ratio:.1},candle:{status:'READY',change_pct:-1}}}];
+  const leaders = selectOpeningLeaders(rows,[{symbol:'DEMO',signal_type:'BUY',signal_state:'CONFIRMED'}],[],now);
+  assert.deepEqual(leaders.map(row => row.symbol),['DEMO']);
+  assert.equal(leaders[0].tier,'EXPLOSIVE');
+  assert.equal(leaders[0].confirmed,true);
+  assert.match(leaders[0].sectorLabel,/Sector Top Gainer/);
+  assert.deepEqual(marketBreadth(rows,2,now),{advances:1,declines:1,unchanged:0,covered:2,universe:2,ratio:1,label:'PARTIAL COVERAGE'});
+  assert.equal(sectorRotation(rows,now).length,1);
+  assert.equal(selectOpeningLeaders(rows,[],[],new Date('2026-11-03T09:18:00+05:30')).length,0);
+  const afterOpenNews = [{title:'Later announcement',published_at:'2026-11-02T10:00:00+05:30'}];
+  const withLaterNews = [{...base,market_evidence:{...base.market_evidence,news:afterOpenNews}}];
+  assert.equal(selectOpeningLeaders(withLaterNews,[],[],now)[0].reasons.includes('Fresh headline'),false);
+  assert.equal(marketBreadth(rows,218,new Date('2026-11-02T09:25:00+05:30')).label,'QUOTES STALE');
+});
+
 test('confirmed movement tags require full daily boundary and never use later OI/news', () => {
   const {confirmedPatternHint} = require('../app/lib/market-context.ts');
   const signal = {signal_state:'CONFIRMED',signal_type:'BUY',entry:105,rvol:3,metadata:{daily_context:{status:'READY',nr7:true,nr4:true,compression:true,pdh:104,pdl:99,trend:'DOWNTREND'},full_result:{body_ratio:.8,close_location:.9}}};
