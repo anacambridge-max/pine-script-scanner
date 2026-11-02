@@ -65,7 +65,7 @@ export default function Home() {
   };
   const filingBadge = (symbol: string, cutoff: string | null | undefined) => {
     const filing = latestFiling(contextBySymbol.get(symbol)?.market_evidence.filings, cutoff);
-    return filing ? <a className="sectorSupport" href={filing.url} target="_blank" rel="noreferrer" title={`${filing.title} · ${timeFmt(filing.published_at)} IST · Direction unverified`}>NSE filing · {filing.period === "SAME DAY" ? "today" : "previous session"}</a> : null;
+    return filing ? <a className="filingTag" href={filing.url} target="_blank" rel="noreferrer" title={filing.title + " · " + timeFmt(filing.published_at) + " IST · Direction unverified"}>📰 NSE NEWS · {filing.period === "SAME DAY" ? "TODAY" : "PREV SESSION"}</a> : null;
   };
   const patternBadge = (signal: Signal) => {
     const hint = confirmedPatternHint(signal, contextBySymbol.get(signal.symbol)?.daily_context);
@@ -136,6 +136,15 @@ export default function Home() {
   const alignmentFor = (signal: Signal) => signalAlignment(signal, preMarketRows, contextBySymbol.get(signal.symbol));
   const breadth = useMemo(() => marketBreadth(marketContext, health.universe_count || marketContext.length), [marketContext, health.universe_count]);
   const rotatingSectors = useMemo(() => sectorRotation(marketContext), [marketContext]);
+  const nseFilings = useMemo(() => {
+    const now = Date.now();
+    const seen = new Set<string>();
+    return marketContext.flatMap(row => (row.market_evidence?.filings ?? []).map(filing => ({symbol: row.symbol, filing})))
+      .filter(({filing}) => Date.parse(filing.published_at) <= now && Date.parse(filing.published_at) >= now - 48 * 60 * 60 * 1000)
+      .filter(({filing}) => { if (seen.has(filing.url)) return false; seen.add(filing.url); return true; })
+      .sort((a,b) => Number(b.filing.category === "RESULTS") - Number(a.filing.category === "RESULTS") || Date.parse(b.filing.published_at) - Date.parse(a.filing.published_at))
+      .slice(0, 16);
+  }, [marketContext]);
 
   async function loadHotStocks() {
     try {
@@ -346,6 +355,11 @@ export default function Home() {
         </div>
         <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{filingBadge(row.symbol, row.openingCloseAt)}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
         <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Gap-led exception: ≥2% same-direction gap, ≥10× volume, ≥30% body and ≥65% directional close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
+      </section>
+
+      <section className="filingsPanel" aria-label="NSE corporate filings">
+        <div className="filingsHead"><div><span className="deskKicker">COMPANY ANNOUNCEMENTS</span><h2>NSE corporate filings</h2><p>Same-day and previous-session filings for the scanned F&amp;O stocks. Filing direction is unverified; it does not create a signal.</p></div><span className="filingsCount">{nseFilings.length} filings</span></div>
+        {nseFilings.length ? <div className="filingsGrid">{nseFilings.map(({symbol, filing}) => <a className="filingCard" href={filing.url} target="_blank" rel="noreferrer" key={symbol + filing.url}><div className="filingCardTop"><strong>{symbol}</strong><span>{filing.period === "SAME DAY" ? "SAME DAY" : "PREVIOUS SESSION"}</span></div><b>{filing.category === "RESULTS" ? "QUARTERLY RESULTS" : filing.context || "COMPANY ANNOUNCEMENT"}</b><p>{filing.title}</p><small>{timeFmt(filing.published_at)} IST · NSE filing ↗</small></a>)}</div> : <div className="filingsEmpty">No fresh NSE filings loaded yet. The worker must be online to fetch this list.</div>}
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
@@ -672,6 +686,23 @@ export default function Home() {
         .openingSector { margin:7px 5px 0 0; border-color:#497b60; color:#8fe4ae; }
         .openingConfirmed { margin:7px 0 0; border-color:#496993; color:#a9ccff; }
         .openingFooter { margin-top:13px; }
+        .filingsPanel { max-width:1680px; margin:14px auto; padding:18px; border:1px solid #31506a; border-radius:16px; background:linear-gradient(135deg,#10253a,#0b1728 65%); }
+        .filingsHead { display:flex; justify-content:space-between; align-items:center; gap:14px; margin-bottom:14px; }
+        .filingsHead h2 { margin:4px 0; font-size:19px; }
+        .filingsHead p { margin:0; color:#91a9c2; font-size:11px; }
+        .filingsCount { padding:7px 11px; border:1px solid #3a607b; border-radius:18px; color:#b5d9ef; font-size:11px; font-weight:800; white-space:nowrap; }
+        .filingsGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+        .filingCard { display:block; min-width:0; padding:12px; border:1px solid #28445d; border-radius:10px; background:#0a1623; color:#dce9f4; text-decoration:none; }
+        .filingCard:hover { border-color:#60caa8; background:#0d1e2d; }
+        .filingCardTop { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px; }
+        .filingCardTop strong { color:#78e0b4; font-size:13px; }
+        .filingCardTop span { color:#f2d38e; font-size:9px; font-weight:800; }
+        .filingCard>b { display:block; overflow:hidden; color:#c7dcf0; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+        .filingCard p { display:-webkit-box; min-height:34px; margin:6px 0; overflow:hidden; color:#91a9c2; font-size:10px; line-height:1.5; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+        .filingCard small { color:#718ba6; font-size:9px; }
+        .filingsEmpty { padding:18px; border:1px dashed #304963; border-radius:10px; color:#91a9c2; font-size:12px; }
+        .filingTag { display:inline-flex; align-items:center; margin:5px 5px 0 0; padding:4px 7px; border:1px solid #7b6631; border-radius:6px; background:#3d3217; color:#ffdb78 !important; font-size:9px !important; font-weight:900 !important; letter-spacing:.35px; line-height:1.25; text-decoration:none; white-space:nowrap; }
+        .filingTag:hover { border-color:#ffd36b; background:#59471b; color:#fff0bf !important; }
         .desk,.evidence,.detailGroup { max-width:1680px; margin:0 auto 14px; border:1px solid #24364d; border-radius:16px; background:#0c1624; overflow:hidden; }
         .desk { padding:18px; background:linear-gradient(140deg,#10213a,#0b1523 50%,#10192a); }
         .deskHead { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:16px; }
@@ -804,7 +835,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns { grid-template-columns:1fr; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns { grid-template-columns:1fr; } .filingsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .filingsHead { align-items:flex-start; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
       `}</style>
     </main>
   );
