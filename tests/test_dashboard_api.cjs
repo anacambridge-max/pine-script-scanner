@@ -24,6 +24,35 @@ function route(name) {
   return loaded.exports;
 }
 
+test('confirmed alignment counts only timely directional clues and keeps NR patterns outside the count', () => {
+  const {signalAlignment} = require('../app/lib/signal-alignment.ts');
+  const signal = {
+    symbol: 'DELHIVERY', signal_type: 'BUY', signal_state: 'CONFIRMED',
+    signal_time: '2026-10-27T09:15:00+05:30',
+    metadata: {
+      full_result: {timestamp: '2026-10-27T09:15:00+05:30'},
+      sector_rank_type: 'TOP 3 GAINER',
+      movement_evidence: {
+        confirmed_at: '2026-10-27T09:18:00+05:30', observed_at: '2026-10-27T09:17:00+05:30',
+        oi: {label: 'LONG BUILDUP'},
+        news: [{impact: 'POSITIVE', published_at: '2026-10-27T09:19:00+05:30', title: 'Later headline'}],
+      },
+    },
+  };
+  const premarket = [{symbol: 'DELHIVERY', movement_direction: 'UP WATCH', snapshot_time: '2026-10-27T09:07:00+05:30'}];
+  const context = {daily_context: {nr7: true}, market_evidence: {opening: {
+    status: 'READY', timestamp: '2026-10-27T09:15:00+05:30',
+    open: 400, close: 404, move_pct: 4, gap_pct: 3, volume_multiple: 15,
+    body_ratio: .4, close_location: .68,
+  }}};
+  const result = signalAlignment(signal, premarket, context);
+  assert.equal(result.count, 4);
+  assert.equal(result.labels.some(label => label.includes('News')), false);
+  assert.equal(result.labels.some(label => label.includes('NR7')), false);
+  assert.equal(signalAlignment({...signal, signal_type: 'SELL'}, premarket, context).count, 0);
+  assert.equal(signalAlignment({...signal, metadata: {...signal.metadata, sector_rank_type: undefined, movement_evidence: undefined}}, premarket, context).count, 2);
+});
+
 test('signal query keeps both IST bounds and confirmed 3m filters', async () => {
   const previous = global.fetch;
   const oldBase = process.env.SUPABASE_URL;

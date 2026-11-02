@@ -5,6 +5,7 @@ import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sector
 import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
 import { marketBreadth, sectorRotation, selectOpeningLeaders } from "./lib/opening-dashboard";
+import { signalAlignment } from "./lib/signal-alignment";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -52,7 +53,7 @@ const signalClock = (signal: Signal) =>
   timeFmt(signal.signal_time);
 
 export default function Home() {
-  type SortKey = "pattern" | "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
+  type SortKey = "alignment" | "pattern" | "signal_time" | "symbol" | "signal_type" | "timeframe" | "score" | "grade" | "sector" | "sector_rank" | "ltp" | "entry" | "stop_loss" | "target1" | "target2" | "risk_reward" | "rvol" | "breakout_level" | "setup";
   const [signals, setSignals] = useState<Signal[]>([]);
   const [marketContext, setMarketContext] = useState<MarketContextRow[]>([]);
   const [contextError, setContextError] = useState("");
@@ -128,6 +129,7 @@ export default function Home() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort] = useState<{key: SortKey; dir: "asc" | "desc"}>({ key: "signal_time", dir: "desc" });
   const openingLeaders = useMemo(() => selectOpeningLeaders(marketContext, signals, preMarketRows), [marketContext, signals, preMarketRows]);
+  const alignmentFor = (signal: Signal) => signalAlignment(signal, preMarketRows, contextBySymbol.get(signal.symbol));
   const breadth = useMemo(() => marketBreadth(marketContext, health.universe_count || marketContext.length), [marketContext, health.universe_count]);
   const rotatingSectors = useMemo(() => sectorRotation(marketContext), [marketContext]);
 
@@ -220,6 +222,7 @@ export default function Home() {
           case "signal_time": return s.signal_time ? new Date(s.signal_time).getTime() : 0;
           case "symbol": return s.symbol;
           case "pattern": { const hint = confirmedPatternHint(s, contextBySymbol.get(s.symbol)?.daily_context); return [...hint.labels, hint.label ?? ""].join(" "); }
+          case "alignment": return alignmentFor(s).count;
           case "signal_type": return s.signal_type;
           case "timeframe": return Number(s.metadata?.timeframe ?? 0);
           case "sector": return s.metadata?.sector ?? "";
@@ -235,7 +238,7 @@ export default function Home() {
         : Number(av) - Number(bv);
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [signals, filter, search, sort, marketContext, patternFilter]);
+  }, [signals, filter, search, sort, marketContext, preMarketRows, patternFilter]);
 
   const setSortKey = (key: SortKey) => {
     setSort((current) => current.key === key
@@ -280,8 +283,10 @@ export default function Home() {
     .filter(s => s.signal_state === "CONFIRMED" && ["BUY", "SELL"].includes(s.signal_type))
     .map(signal => ({signal, ...selectionRules(signal, contextBySymbol.get(signal.symbol)?.daily_context)}));
 
-  const topBuys = selectorRows.filter(x => x.signal.signal_type === "BUY").sort(compareSelections).slice(0, 10);
-  const topSells = selectorRows.filter(x => x.signal.signal_type === "SELL").sort(compareSelections).slice(0, 10);
+  const compareAlignedSelections = (a: typeof selectorRows[number], b: typeof selectorRows[number]) =>
+    alignmentFor(b.signal).count - alignmentFor(a.signal).count || compareSelections(a, b);
+  const topBuys = selectorRows.filter(x => x.signal.signal_type === "BUY").sort(compareAlignedSelections).slice(0, 10);
+  const topSells = selectorRows.filter(x => x.signal.signal_type === "SELL").sort(compareAlignedSelections).slice(0, 10);
 
   const commonStockRows = useMemo(() => buildCommonStockRows(signals, [
     {name: "PRE-MARKET MOVEMENT WATCH", symbols: preMarketRows.map(row => row.symbol)},
@@ -296,6 +301,7 @@ export default function Home() {
     { key: "signal_time", label: "TIME" },
     { key: "symbol", label: "SYMBOL" },
     { key: "pattern", label: "PATTERN / POTENTIAL MOVE" },
+    { key: "alignment", label: "CLUES" },
     { key: "signal_type", label: "SIGNAL" },
     { key: "score", label: "SCORE", align: "right" },
     { key: "ltp", label: "SIGNAL CLOSE", align: "right" },
@@ -375,9 +381,9 @@ export default function Home() {
         <div className="selectorHead">
           <div>
             <strong>INTRADAY TRADE SELECTOR</strong>
-            <span>Up to 10 per side from matching confirmed signals · rule priority, no score ranking · verify current chart before entry</span>
+            <span>Up to 10 per side from matching confirmed signals · matched clues first, then setup quality · verify current chart before entry</span>
           </div>
-          <div className="selectorNote">Priority: candle quality → SL distance → saved OI/news/sector → compression/trend → volume</div>
+          <div className="selectorNote">Priority: pre-market/opening/sector/news-OI matches → candle quality → SL distance → volume</div>
         </div>
 
         <div className="selectorGrid">
@@ -392,7 +398,7 @@ export default function Home() {
                     {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
-                  <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
+                  <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
                   <div className="selectorScore buyScore">{item.tier}</div>
                 </div>
               ))}
@@ -409,7 +415,7 @@ export default function Home() {
                     {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
-                  <div className="selectorReasons">{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
+                  <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
                   <div className="selectorScore sellScore">{item.tier}</div>
                 </div>
               ))}
@@ -599,6 +605,7 @@ export default function Home() {
                    <td className="timeCell">{timeFmt(signal.signal_time)}</td>
                    <td className="symbol">{signal.symbol}</td>
                    <td className="patternCell">{patternBadge(signal)}</td>
+                   <td className="alignmentCell"><strong>{alignmentFor(signal).count}/4 clues</strong><div>{alignmentFor(signal).labels.map(label => <span key={label}>{label}</span>)}</div>{alignmentFor(signal).unavailable.length > 0 && <small title={alignmentFor(signal).unavailable.join(', ')}>Unavailable: {alignmentFor(signal).unavailable.join(', ')}</small>}</td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
                    <td className="right"><span className={score >= 80 ? "score high" : score >= 65 ? "score mid" : "score low"}>{score}</span></td>
                    <td className="right num">{fmt(signal.ltp)}</td><td className="right num">{fmt(signal.entry)}</td><td className="right num sl">{fmt(signal.stop_loss)}</td>
@@ -732,6 +739,12 @@ export default function Home() {
         .selectorSymbol small { display:block; margin-top:2px; color:#61728a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
         .selectorReasons { display:flex; flex-wrap:wrap; gap:4px; }
         .selectorReasons span { padding:3px 5px; border:1px solid #25354b; border-radius:4px; background:#111b29; color:#8394ab; font-size:8px; white-space:nowrap; }
+        .selectorReasons .alignmentChip { color:#61e5b3; border-color:#1e6048; background:#0d291f; }
+        .alignmentCell { min-width:210px; max-width:300px; }
+        .alignmentCell strong { color:#61e5b3; font-size:11px; }
+        .alignmentCell div { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
+        .alignmentCell div span { color:#b2d8c9; border:1px solid #244e42; border-radius:4px; padding:2px 4px; font-size:9px; }
+        .alignmentCell small { display:block; color:#71829a; font-size:8px; margin-top:4px; }
         .selectorScore { display:grid; place-items:center; min-width:35px; padding:5px 4px; border-radius:6px; font-size:11px; font-weight:900; }
         .buyScore { color:#3cdda0; background:#0d291f; border:1px solid #1e6048; }
         .sellScore { color:#ff7189; background:#2a151c; border:1px solid #63303d; }
