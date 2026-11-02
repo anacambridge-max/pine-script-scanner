@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from "react";
-import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter, latestFiling } from "./lib/market-context";
+import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter, latestDailyArticle } from "./lib/market-context";
 import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
 import { marketBreadth, sectorRotation, selectOpeningLeaders } from "./lib/opening-dashboard";
@@ -63,9 +63,9 @@ export default function Home() {
     const support = sectorSupport(context, direction);
     return <small className={support.bonus ? "sectorSupport supported" : "sectorSupport"} title={context?.sector_observed_at ? `Sector snapshot ${timeFmt(context.sector_observed_at)} IST` : ""}>{support.label}</small>;
   };
-  const filingBadge = (symbol: string, cutoff: string | null | undefined) => {
-    const filing = latestFiling(contextBySymbol.get(symbol)?.market_evidence.filings, cutoff);
-    return filing ? <a className="filingTag" href={filing.url} target="_blank" rel="noreferrer" title={filing.title + " · " + timeFmt(filing.published_at) + " IST · Direction unverified"}>📰 NSE NEWS · {filing.period === "SAME DAY" ? "TODAY" : "PREV SESSION"}</a> : null;
+  const articleBadge = (symbol: string, cutoff: string | null | undefined) => {
+    const article = latestDailyArticle(contextBySymbol.get(symbol)?.market_evidence.daily_articles, cutoff);
+    return article ? <a className="filingTag" href={article.url} target="_blank" rel="noreferrer" title={article.title + " · " + article.source + " · " + article.kind + " · market context only"}>📰 {article.source.toUpperCase()} · {article.kind === "EARNINGS / RESULTS" ? "RESULTS" : "WATCHLIST"}</a> : null;
   };
   const patternBadge = (signal: Signal) => {
     const hint = confirmedPatternHint(signal, contextBySymbol.get(signal.symbol)?.daily_context);
@@ -87,8 +87,8 @@ export default function Home() {
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
   const rankedPreMarketRows = [...preMarketRows].sort((a,b) =>
-    (b.movement_score * 0.9 + sectorSupport(contextBySymbol.get(b.symbol)?.sector_context, b.movement_direction).bonus + (latestFiling(contextBySymbol.get(b.symbol)?.market_evidence.filings, b.snapshot_time) ? 4 : 0)) -
-    (a.movement_score * 0.9 + sectorSupport(contextBySymbol.get(a.symbol)?.sector_context, a.movement_direction).bonus + (latestFiling(contextBySymbol.get(a.symbol)?.market_evidence.filings, a.snapshot_time) ? 4 : 0)));
+    (b.movement_score * 0.9 + sectorSupport(contextBySymbol.get(b.symbol)?.sector_context, b.movement_direction).bonus + (latestDailyArticle(contextBySymbol.get(b.symbol)?.market_evidence.daily_articles, b.snapshot_time) ? 4 : 0)) -
+    (a.movement_score * 0.9 + sectorSupport(contextBySymbol.get(a.symbol)?.sector_context, a.movement_direction).bonus + (latestDailyArticle(contextBySymbol.get(a.symbol)?.market_evidence.daily_articles, a.snapshot_time) ? 4 : 0)));
   const [preMarketSourceCount, setPreMarketSourceCount] = useState(0);
   const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
   const [preMarketSnapshotCount, setPreMarketSnapshotCount] = useState(0);
@@ -136,14 +136,14 @@ export default function Home() {
   const alignmentFor = (signal: Signal) => signalAlignment(signal, preMarketRows, contextBySymbol.get(signal.symbol));
   const breadth = useMemo(() => marketBreadth(marketContext, health.universe_count || marketContext.length), [marketContext, health.universe_count]);
   const rotatingSectors = useMemo(() => sectorRotation(marketContext), [marketContext]);
-  const nseFilings = useMemo(() => {
+  const dailyArticles = useMemo(() => {
     const now = Date.now();
     const seen = new Set<string>();
-    return marketContext.flatMap(row => (row.market_evidence?.filings ?? []).map(filing => ({symbol: row.symbol, filing})))
-      .filter(({filing}) => Date.parse(filing.published_at) <= now && Date.parse(filing.published_at) >= now - 48 * 60 * 60 * 1000)
-      .filter(({filing}) => { if (seen.has(filing.url)) return false; seen.add(filing.url); return true; })
-      .sort((a,b) => Number(b.filing.category === "RESULTS") - Number(a.filing.category === "RESULTS") || Date.parse(b.filing.published_at) - Date.parse(a.filing.published_at))
-      .slice(0, 16);
+    return marketContext.flatMap(row => (row.market_evidence?.daily_articles ?? []).map(article => ({symbol: row.symbol, article})))
+      .filter(({article}) => Date.parse(article.published_at) <= now && Date.parse(article.published_at) >= now - 24 * 60 * 60 * 1000)
+      .filter(({article}) => { const key = `${article.url}|${article.kind}|${article.context}`; if (seen.has(key)) return false; seen.add(key); return true; })
+      .sort((a,b) => Number(b.article.kind === "EARNINGS / RESULTS") - Number(a.article.kind === "EARNINGS / RESULTS") || Date.parse(b.article.published_at) - Date.parse(a.article.published_at))
+      .slice(0, 24);
   }, [marketContext]);
 
   async function loadHotStocks() {
@@ -353,20 +353,26 @@ export default function Home() {
           <div className="breadthCard"><div className="openingContextTitle">MARKET BREADTH <span>{breadth.label}</span></div><div className="breadthNumbers"><b className="up">{breadth.advances}<small>UP</small></b><b>{breadth.unchanged}<small>FLAT</small></b><b className="down">{breadth.declines}<small>DOWN</small></b><b>{breadth.ratio == null ? "—" : fmt(breadth.ratio)}<small>A:D</small></b></div><div className="breadthBar"><i style={{width: breadth.covered ? `${breadth.advances / breadth.covered * 100}%` : "0%"}} /><em style={{width: breadth.covered ? `${breadth.declines / breadth.covered * 100}%` : "0%"}} /></div><small className="openingNote">{breadth.covered}/{breadth.universe || "—"} F&amp;O stocks with today’s quote · partial coverage is marked above</small></div>
           <div className="rotationCard"><div className="openingContextTitle">SECTOR ROTATION <span>{rotatingSectors.length} mapped sectors</span></div>{rotatingSectors.length ? rotatingSectors.slice(0, 5).map((sector, index) => <div className="rotationRow" key={sector.sector}><span>{index + 1}. {sector.sector}</span><b className={sector.change >= 0 ? "up" : "down"}>{sector.change >= 0 ? "+" : ""}{fmt(sector.change)}%</b></div>) : <div className="deskEmpty">Sector quotes are not available yet.</div>}</div>
         </div>
-        <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{filingBadge(row.symbol, row.openingCloseAt)}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
+        <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{articleBadge(row.symbol, row.openingCloseAt)}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
         <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Gap-led exception: ≥2% same-direction gap, ≥10× volume, ≥30% body and ≥65% directional close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
       </section>
 
-      <section className="filingsPanel" aria-label="NSE corporate filings">
-        <div className="filingsHead"><div><span className="deskKicker">COMPANY ANNOUNCEMENTS</span><h2>NSE corporate filings</h2><p>Same-day and previous-session filings for the scanned F&amp;O stocks. Filing direction is unverified; it does not create a signal.</p></div><span className="filingsCount">{nseFilings.length} filings</span></div>
-        {nseFilings.length ? <div className="filingsGrid">{nseFilings.map(({symbol, filing}) => <a className="filingCard" href={filing.url} target="_blank" rel="noreferrer" key={symbol + filing.url}><div className="filingCardTop"><strong>{symbol}</strong><span>{filing.period === "SAME DAY" ? "SAME DAY" : "PREVIOUS SESSION"}</span></div><b>{filing.category === "RESULTS" ? "QUARTERLY RESULTS" : filing.context || "COMPANY ANNOUNCEMENT"}</b><p>{filing.title}</p><small>{timeFmt(filing.published_at)} IST · NSE filing ↗</small></a>)}</div> : <div className="filingsEmpty">No fresh NSE filings loaded yet. The worker must be online to fetch this list.</div>}
+      <section className="filingsPanel" aria-label="Daily publisher stock watch and earnings articles">
+        <div className="filingsHead"><div><span className="deskKicker">SAME-DAY MARKET COVERAGE · MONEYCONTROL + UPSTOX</span><h2>Stocks to watch &amp; earnings</h2><p>Stocks mentioned in today’s watchlist articles and Moneycontrol results coverage. Publisher coverage is context only; it does not confirm direction or create a signal.</p></div><span className="filingsCount">{dailyArticles.length} mentions</span></div>
+        {dailyArticles.length ? <div className="filingsGrid">{dailyArticles.map(({symbol, article}, index) => <article className="filingCard" key={`${symbol}-${article.url}-${index}`}>
+          <div className="filingCardTop"><strong>{symbol}</strong><span>{article.source.toUpperCase()}</span></div>
+          <div className="filingBadges"><b>{article.kind}</b><span>CONTEXT · NOT A SIGNAL</span></div>
+          <p className="filingSummary">{article.context || article.title}</p>
+          <details className="filingDetails"><summary>Article headline</summary><p>{article.title}</p></details>
+          <div className="filingCardFooter"><small>Today · {timeFmt(article.published_at)} IST</small><a href={article.url} target="_blank" rel="noreferrer">Open article ↗</a></div>
+        </article>)}</div> : <div className="filingsEmpty">No same-day stock-watch or Moneycontrol earnings article has matched the scanner universe yet. The worker checks publisher pages every 15 minutes.</div>}
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
         <div className="deskHead"><div><span className="deskKicker">TODAY AT A GLANCE</span><h2>Movement watch & confirmations</h2><p>Pre-market rows are watch candidates. Only a completed 3-minute break is a confirmed signal.</p></div><div className={health.status === "LIVE" ? "statusChip live" : "statusChip"}>{health.status === "LIVE" ? "● LIVE WORKER" : "● WORKER " + health.status}<small>Heartbeat {timeFmt(health.last_run_at)} IST</small></div></div>
         <div className="deskGrid">
-          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? rankedPreMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b>{sectorBadge(row.symbol, row.movement_direction)}{filingBadge(row.symbol, row.snapshot_time)}<small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
-          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{filingBadge(signal.symbol, signal.signal_time)}<small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? rankedPreMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b>{sectorBadge(row.symbol, row.movement_direction)}{articleBadge(row.symbol, row.snapshot_time)}<small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{articleBadge(signal.symbol, signal.signal_time)}<small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
         </div>
       </section>
 
@@ -413,7 +419,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
-                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{filingBadge(item.signal.symbol, item.signal.signal_time)}
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{articleBadge(item.signal.symbol, item.signal.signal_time)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -430,7 +436,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
-                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{filingBadge(item.signal.symbol, item.signal.signal_time)}
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{articleBadge(item.signal.symbol, item.signal.signal_time)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -524,7 +530,7 @@ export default function Home() {
               <thead><tr><th>SYMBOL</th><th>DIRECTION</th><th className="right">WATCH SCORE</th><th className="right">CONSISTENCY</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>FRESH NEWS, IF AVAILABLE</th></tr></thead>
               <tbody>{rankedPreMarketRows.map((row) => (
                 <tr key={row.id}>
-                  <td className="symbol">{row.symbol}{sectorBadge(row.symbol, row.movement_direction)}{filingBadge(row.symbol, row.snapshot_time)}</td>
+                  <td className="symbol">{row.symbol}{sectorBadge(row.symbol, row.movement_direction)}{articleBadge(row.symbol, row.snapshot_time)}</td>
                   <td><span className="setupBadge">{row.movement_direction}</span></td>
                   <td className="right num">{row.movement_score}</td>
                   <td className="right num">{row.aligned_snapshots}/3 · {row.observed_snapshots} total</td>
@@ -560,7 +566,7 @@ export default function Home() {
               <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th className="right">SIGNAL SCORE</th><th>SIGNAL TIME</th><th>PRE-MARKET BIAS</th><th className="right">INDICATIVE GAP</th><th className="right">OI CHANGE</th><th>PRE-MARKET CONTEXT</th></tr></thead>
               <tbody>{preMarketConfirmedRows.map(({signal, premarket}) => (
                 <tr key={signal.id}>
-                  <td className="symbol">{signal.symbol}{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{filingBadge(signal.symbol, signal.signal_time)}</td>
+                  <td className="symbol">{signal.symbol}{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{articleBadge(signal.symbol, signal.signal_time)}</td>
                   <td><span className="setupBadge">{signal.signal_type}</span></td>
                   <td className="right num">{fmt(signal.score)}</td>
                   <td>{signalClock(signal)}</td>
@@ -621,7 +627,7 @@ export default function Home() {
                  const score = Number(signal.score ?? 0);
                  return <tr key={signal.id}>
                    <td className="timeCell">{timeFmt(signal.signal_time)}</td>
-                   <td className="symbol">{signal.symbol}{filingBadge(signal.symbol, signal.signal_time)}</td>
+                   <td className="symbol">{signal.symbol}{articleBadge(signal.symbol, signal.signal_time)}</td>
                    <td className="patternCell">{patternBadge(signal)}</td>
                    <td className="alignmentCell"><strong>{alignmentFor(signal).count}/4 clues</strong><div>{alignmentFor(signal).labels.map(label => <span key={label}>{label}</span>)}</div>{alignmentFor(signal).unavailable.length > 0 && <small title={alignmentFor(signal).unavailable.join(', ')}>Unavailable: {alignmentFor(signal).unavailable.join(', ')}</small>}</td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
@@ -692,14 +698,22 @@ export default function Home() {
         .filingsHead p { margin:0; color:#91a9c2; font-size:11px; }
         .filingsCount { padding:7px 11px; border:1px solid #3a607b; border-radius:18px; color:#b5d9ef; font-size:11px; font-weight:800; white-space:nowrap; }
         .filingsGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
-        .filingCard { display:block; min-width:0; padding:12px; border:1px solid #28445d; border-radius:10px; background:#0a1623; color:#dce9f4; text-decoration:none; }
+        .filingCard { display:flex; min-width:0; flex-direction:column; padding:12px; border:1px solid #28445d; border-radius:10px; background:#0a1623; color:#dce9f4; }
         .filingCard:hover { border-color:#60caa8; background:#0d1e2d; }
         .filingCardTop { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px; }
         .filingCardTop strong { color:#78e0b4; font-size:13px; }
         .filingCardTop span { color:#f2d38e; font-size:9px; font-weight:800; }
-        .filingCard>b { display:block; overflow:hidden; color:#c7dcf0; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-        .filingCard p { display:-webkit-box; min-height:34px; margin:6px 0; overflow:hidden; color:#91a9c2; font-size:10px; line-height:1.5; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+        .filingBadges { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+        .filingBadges b { color:#a9d8ff; font-size:10px; }
+        .filingBadges span { padding:3px 5px; border:1px solid #69562e; border-radius:5px; background:#282214; color:#f1cd79; font-size:8px; font-weight:900; letter-spacing:.35px; }
+        .filingCard .filingSummary { min-height:56px; margin:8px 0 5px; color:#c0cedd; font-size:11px; line-height:1.5; }
+        .filingDetails { margin:3px 0 9px; color:#8197ad; font-size:9px; }
+        .filingDetails summary { cursor:pointer; }
+        .filingDetails p { margin:5px 0; color:#91a9c2; font-size:10px; line-height:1.5; }
+        .filingCardFooter { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:auto; }
         .filingCard small { color:#718ba6; font-size:9px; }
+        .filingCardFooter a { color:#70dcb1; font-size:9px; font-weight:800; text-decoration:none; }
+        .filingCardFooter a:hover { text-decoration:underline; }
         .filingsEmpty { padding:18px; border:1px dashed #304963; border-radius:10px; color:#91a9c2; font-size:12px; }
         .filingTag { display:inline-flex; align-items:center; margin:5px 5px 0 0; padding:4px 7px; border:1px solid #7b6631; border-radius:6px; background:#3d3217; color:#ffdb78 !important; font-size:9px !important; font-weight:900 !important; letter-spacing:.35px; line-height:1.25; text-decoration:none; white-space:nowrap; }
         .filingTag:hover { border-color:#ffd36b; background:#59471b; color:#fff0bf !important; }

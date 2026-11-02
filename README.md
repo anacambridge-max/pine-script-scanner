@@ -101,15 +101,14 @@ history is re-fetched rather than cached indefinitely. Update NSE_HOLIDAYS annua
 NSE pre-market collection still requires the worker to run during 09:00–09:08 IST.
 No eligible news can legitimately produce an empty hot-stock list.
 
-The market-context worker also checks timestamped NSE corporate announcements
-from the previous trading session's 15:30 close through the current observation.
-Weekend and holiday filings in that interval remain eligible. The dashboard
-labels these as same-day or previous-session NSE filings and links to the
-original attachment. Results/filings are direction-unverified context: they
-add a small watchlist ranking bonus, never create a BUY/SELL confirmation or
-count as bullish/bearish news. A filing published after a watch or signal
-timestamp is not displayed as support for that earlier event. If NSE is
-unavailable, its filing context is omitted while price-based signals continue.
+The market-context worker checks same-day stock-watch articles from Upstox and
+Moneycontrol, plus Moneycontrol earnings/results coverage. It links to the
+publisher article and labels each match by source and category. Article mentions
+are context only: they add a small watchlist ranking bonus, never create a
+BUY/SELL confirmation or count as verified bullish/bearish news. Articles
+published after a watch or signal timestamp are not displayed as support for
+that earlier event. If a publisher is unavailable or has no eligible same-day
+article, its coverage is omitted while price-based signals continue.
 
 Run `python -m pytest` and `npm run build` to validate changes. Restart the Python
 worker and redeploy the Next.js dashboard to activate them. Existing saved signals

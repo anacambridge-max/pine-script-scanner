@@ -5,12 +5,12 @@ export type DailyContext = {
 };
 
 export type MovementEvidence = {confirmed_at: string; observed_at: string; oi?: {label?: string}; news?: {impact: string; published_at: string; title: string}[]};
-export type NseFiling = {title: string; url: string; published_at: string; source: string; period: "SAME DAY" | "PREVIOUS SESSION"; impact: string; context?: string; category?: string};
-export function latestFiling(filings: NseFiling[] | undefined, cutoff: string | null | undefined): NseFiling | undefined {
+export type DailyStockArticle = {title: string; url: string; published_at: string; source: "Upstox" | "Moneycontrol"; kind: "STOCKS TO WATCH" | "EARNINGS / RESULTS"; impact: string; context?: string};
+export function latestDailyArticle(articles: DailyStockArticle[] | undefined, cutoff: string | null | undefined): DailyStockArticle | undefined {
   const limit = Date.parse(cutoff ?? "");
   if (!Number.isFinite(limit)) return undefined;
-  return filings?.filter(item => Number.isFinite(Date.parse(item.published_at)) && Date.parse(item.published_at) <= limit)
-    .sort((a, b) => Number(b.category === "RESULTS") - Number(a.category === "RESULTS") || Date.parse(b.published_at) - Date.parse(a.published_at))[0];
+  return articles?.filter(item => Number.isFinite(Date.parse(item.published_at)) && Date.parse(item.published_at) <= limit)
+    .sort((a, b) => Number(b.kind === "EARNINGS / RESULTS") - Number(a.kind === "EARNINGS / RESULTS") || Date.parse(b.published_at) - Date.parse(a.published_at))[0];
 }
 export type PatternFilter = "ALL" | "MOVERS" | "STRONG" | "GAINERS" | "LOSERS" | "NR7" | "NR4" | "NARROW" | "SUPPORTED";
 export function confirmedPatternHint(signal: {signal_state?: string | null; signal_type: string; entry?: number | null; rvol?: number | null; metadata?: {daily_context?: DailyContext; movement_evidence?: MovementEvidence; full_result?: {body_ratio?: number; close_location?: number}}}, daily?: DailyContext) {
@@ -62,7 +62,7 @@ export type MarketContextRow = {
     opening?: {status: string; timestamp?: string; previous_close?: number; open?: number; high?: number; low?: number; close?: number; volume?: number; gap_pct?: number; move_pct?: number; body_ratio?: number; close_location?: number; volume_multiple?: number | null; baseline_bars?: number; baseline_session?: string | null; volume_reference?: string};
     oi: {label: string; change_pct?: number | null; futures_price_change_pct?: number | null; contract?: string | null; quote_time?: string | null};
     news: {title: string; url: string; published_at: string; context?: string; impact: string}[];
-    filings?: NseFiling[];
+    daily_articles?: DailyStockArticle[];
     quote_time?: string; volume_vs_daily20?: number | null; news_status?: string;
   };
 };
