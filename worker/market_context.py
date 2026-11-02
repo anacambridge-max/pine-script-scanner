@@ -78,6 +78,8 @@ class MarketContext:
         self.histories: dict[str, pd.DataFrame] = {}
         self.news: list[Any] = []
         self.news_at: datetime | None = None
+        self.filings: dict[str, list[dict]] = {}
+        self.filings_at: datetime | None = None
         self.last_refresh: datetime | None = None
         self.latest_rows: dict[str, dict] = {}
         self.session = requests.Session()
@@ -109,6 +111,8 @@ class MarketContext:
             self.day = day
             self.news = []
             self.news_at = None
+            self.filings = {}
+            self.filings_at = None
         keys = [key for item in self.worker.instruments for key in (item["instrument_key"], item.get("futures_key")) if key]
         quotes = {}
         for offset in range(0, len(keys), 100):
@@ -129,6 +133,13 @@ class MarketContext:
                 self.news_at = now
             except Exception as exc:
                 print(f"[CONTEXT NEWS WARNING] {type(exc).__name__}")
+        if not self.filings_at or (now-self.filings_at).total_seconds() >= 900:
+            try:
+                from worker.nse_catalysts import fetch_nse_filings
+                self.filings = fetch_nse_filings(now, set(self.worker.instrument_map.values()))
+                self.filings_at = now
+            except Exception as exc:
+                print(f"[NSE FILINGS WARNING] {type(exc).__name__}: {exc}")
         from worker.hot_news_core import alias_matches, extract_stock_specific_text, classify_direction, parse_published_at
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         rows = []
@@ -179,6 +190,7 @@ class MarketContext:
             rows.append({"trade_date": day, "symbol": symbol, "instrument_key": key,
                 "observed_at": now.isoformat(), "daily_context": daily, "sector_context": sector,
                 "market_evidence": {"candle": candle, "oi": oi, "news": headlines[:5],
+                    "filings": self.filings.get(symbol, [])[:5],
                     "opening": opening,
                     "quote_time": quote.get("timestamp"), "volume_vs_daily20": volume_ratio,
                     "news_status": "MATCHED" if headlines else "NO VERIFIED MATCH IN FETCHED COVERAGE"}})

@@ -53,6 +53,19 @@ test('confirmed alignment counts only timely directional clues and keeps NR patt
   assert.equal(signalAlignment({...signal, metadata: {...signal.metadata, sector_rank_type: undefined, movement_evidence: undefined}}, premarket, context).count, 2);
 });
 
+test('NSE filing context respects event time and cannot become a directional confirmation clue', () => {
+  const {latestFiling} = require('../app/lib/market-context.ts');
+  const {signalAlignment} = require('../app/lib/signal-alignment.ts');
+  const filings = [
+    {title:'Quarterly results',url:'https://nsearchives.nseindia.com/corporate/a.pdf',published_at:'2026-10-30T16:07:00+05:30',source:'NSE filing',period:'PREVIOUS SESSION',impact:'MATERIAL EVENT / DIRECTION UNVERIFIED',category:'RESULTS'},
+    {title:'Later result',url:'https://nsearchives.nseindia.com/corporate/b.pdf',published_at:'2026-11-02T10:00:00+05:30',source:'NSE filing',period:'SAME DAY',impact:'MATERIAL EVENT / DIRECTION UNVERIFIED',category:'RESULTS'},
+  ];
+  assert.equal(latestFiling(filings, '2026-11-02T09:15:00+05:30').title, 'Quarterly results');
+  const signal = {symbol:'DIXON',signal_type:'BUY',signal_state:'CONFIRMED',signal_time:'2026-11-02T09:15:00+05:30'};
+  const context = {market_evidence:{filings,opening:{status:'PENDING'}}};
+  assert.equal(signalAlignment(signal, [], context).count, 0);
+});
+
 test('signal query keeps both IST bounds and confirmed 3m filters', async () => {
   const previous = global.fetch;
   const oldBase = process.env.SUPABASE_URL;

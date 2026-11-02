@@ -1,10 +1,10 @@
 import type { MarketContextRow } from './market-context';
-import { sectorSupport } from './market-context';
+import { latestFiling, sectorSupport } from './market-context';
 
 export type OpeningLeader = {
   symbol: string; direction: 'UP WATCH' | 'DOWN WATCH'; tier: 'EXPLOSIVE' | 'STRONG' | 'SPURT';
   score: number; volumeMultiple: number; gapPct: number; movePct: number; bodyRatio: number;
-  closeLocation: number; sectorLabel: string | null; confirmed: boolean; reasons: string[];
+  closeLocation: number; sectorLabel: string | null; confirmed: boolean; reasons: string[]; openingCloseAt: string;
 };
 
 type SignalLink = {symbol: string; signal_type: string; signal_state: string | null};
@@ -43,6 +43,7 @@ export function selectOpeningLeaders(rows: MarketContextRow[], signals: SignalLi
     const confirmedSignal = confirmed.has(`${row.symbol}|${up ? 'BUY' : 'SELL'}`);
     const compression = row.daily_context?.status === 'READY' && Boolean(row.daily_context.compression);
     const openingClose = Date.parse(bar.timestamp) + 60000;
+    const filing = latestFiling(row.market_evidence.filings, new Date(openingClose).toISOString());
     const freshNews = (row.market_evidence.news || []).some(news => {
       const published = Date.parse(news.published_at);
       return Number.isFinite(published) && published <= openingClose && istDay(new Date(published)) === istDay(now);
@@ -50,7 +51,7 @@ export function selectOpeningLeaders(rows: MarketContextRow[], signals: SignalLi
     const score = Math.min(100, Math.round(
       Math.min(30, volume * 2.5) + Math.min(20, bar.body_ratio * 25) +
       Math.min(15, location * 15) + Math.min(10, Math.abs(bar.move_pct) * 4) +
-      sector.bonus + (alignedPreMarket ? 5 : 0) + (compression ? 5 : 0) + (freshNews ? 5 : 0)
+      sector.bonus + (alignedPreMarket ? 5 : 0) + (compression ? 5 : 0) + (freshNews ? 5 : 0) + (filing ? 4 : 0)
     ));
     const tier = volume >= 10 && bar.body_ratio >= .55 && location >= .8 || gapDriven && volume >= 15 ? 'EXPLOSIVE' :
       volume >= 6 && bar.body_ratio >= .5 ? 'STRONG' : 'SPURT';
@@ -61,11 +62,12 @@ export function selectOpeningLeaders(rows: MarketContextRow[], signals: SignalLi
       gapDriven ? 'Gap-led opening volume' : null,
       compression ? 'Prior-day compression' : null,
       freshNews ? 'Fresh headline' : null,
+      filing ? `NSE filing · ${filing.period === 'SAME DAY' ? 'Today' : 'Previous session'}` : null,
     ].filter(Boolean) as string[];
     result.push({symbol: row.symbol, direction, tier, score, volumeMultiple: volume,
       gapPct: bar.gap_pct, movePct: bar.move_pct, bodyRatio: bar.body_ratio,
       closeLocation: location, sectorLabel: sector.bonus ? sector.label : null,
-      confirmed: confirmedSignal, reasons});
+      confirmed: confirmedSignal, reasons, openingCloseAt: new Date(openingClose).toISOString()});
   }
   return result.sort((a,b) => b.score-a.score || b.volumeMultiple-a.volumeMultiple || a.symbol.localeCompare(b.symbol)).slice(0, 18);
 }

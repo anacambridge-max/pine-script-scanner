@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from "react";
-import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter } from "./lib/market-context";
+import { DailyContext, MarketContextRow, MovementEvidence, PatternFilter, sectorSupport, confirmedPatternHint, matchesPatternFilter, latestFiling } from "./lib/market-context";
 import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
 import { marketBreadth, sectorRotation, selectOpeningLeaders } from "./lib/opening-dashboard";
@@ -63,6 +63,10 @@ export default function Home() {
     const support = sectorSupport(context, direction);
     return <small className={support.bonus ? "sectorSupport supported" : "sectorSupport"} title={context?.sector_observed_at ? `Sector snapshot ${timeFmt(context.sector_observed_at)} IST` : ""}>{support.label}</small>;
   };
+  const filingBadge = (symbol: string, cutoff: string | null | undefined) => {
+    const filing = latestFiling(contextBySymbol.get(symbol)?.market_evidence.filings, cutoff);
+    return filing ? <a className="sectorSupport" href={filing.url} target="_blank" rel="noreferrer" title={`${filing.title} · ${timeFmt(filing.published_at)} IST · Direction unverified`}>NSE filing · {filing.period === "SAME DAY" ? "today" : "previous session"}</a> : null;
+  };
   const patternBadge = (signal: Signal) => {
     const hint = confirmedPatternHint(signal, contextBySymbol.get(signal.symbol)?.daily_context);
     return <>{hint.labels.length > 0 && <small className="sectorSupport">{hint.labels.join(" · ")}</small>}{hint.label && <small className="sectorSupport supported" title={hint.reason ?? ""}>{hint.label}</small>}{hint.label && hint.supporting.length > 0 && <small className="sectorSupport">{hint.supporting.join(" · ")}</small>}</>;
@@ -83,8 +87,8 @@ export default function Home() {
   const [technicalOnlyRows, setTechnicalOnlyRows] = useState<HotStock[]>([]);
   const [preMarketRows, setPreMarketRows] = useState<PreMarketRow[]>([]);
   const rankedPreMarketRows = [...preMarketRows].sort((a,b) =>
-    (b.movement_score * 0.9 + sectorSupport(contextBySymbol.get(b.symbol)?.sector_context, b.movement_direction).bonus) -
-    (a.movement_score * 0.9 + sectorSupport(contextBySymbol.get(a.symbol)?.sector_context, a.movement_direction).bonus));
+    (b.movement_score * 0.9 + sectorSupport(contextBySymbol.get(b.symbol)?.sector_context, b.movement_direction).bonus + (latestFiling(contextBySymbol.get(b.symbol)?.market_evidence.filings, b.snapshot_time) ? 4 : 0)) -
+    (a.movement_score * 0.9 + sectorSupport(contextBySymbol.get(a.symbol)?.sector_context, a.movement_direction).bonus + (latestFiling(contextBySymbol.get(a.symbol)?.market_evidence.filings, a.snapshot_time) ? 4 : 0)));
   const [preMarketSourceCount, setPreMarketSourceCount] = useState(0);
   const [preMarketSnapshotTime, setPreMarketSnapshotTime] = useState<string | null>(null);
   const [preMarketSnapshotCount, setPreMarketSnapshotCount] = useState(0);
@@ -340,15 +344,15 @@ export default function Home() {
           <div className="breadthCard"><div className="openingContextTitle">MARKET BREADTH <span>{breadth.label}</span></div><div className="breadthNumbers"><b className="up">{breadth.advances}<small>UP</small></b><b>{breadth.unchanged}<small>FLAT</small></b><b className="down">{breadth.declines}<small>DOWN</small></b><b>{breadth.ratio == null ? "—" : fmt(breadth.ratio)}<small>A:D</small></b></div><div className="breadthBar"><i style={{width: breadth.covered ? `${breadth.advances / breadth.covered * 100}%` : "0%"}} /><em style={{width: breadth.covered ? `${breadth.declines / breadth.covered * 100}%` : "0%"}} /></div><small className="openingNote">{breadth.covered}/{breadth.universe || "—"} F&amp;O stocks with today’s quote · partial coverage is marked above</small></div>
           <div className="rotationCard"><div className="openingContextTitle">SECTOR ROTATION <span>{rotatingSectors.length} mapped sectors</span></div>{rotatingSectors.length ? rotatingSectors.slice(0, 5).map((sector, index) => <div className="rotationRow" key={sector.sector}><span>{index + 1}. {sector.sector}</span><b className={sector.change >= 0 ? "up" : "down"}>{sector.change >= 0 ? "+" : ""}{fmt(sector.change)}%</b></div>) : <div className="deskEmpty">Sector quotes are not available yet.</div>}</div>
         </div>
-        <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
+        <div className="openingColumns">{(["EXPLOSIVE", "STRONG", "SPURT"] as const).map(tier => <div className="openingColumn" key={tier}><div className={`openingColumnTitle ${tier.toLowerCase()}`}>{tier}<span>{openingLeaders.filter(row => row.tier === tier).length}</span></div>{openingLeaders.filter(row => row.tier === tier).map(row => <div className="openingItem" key={row.symbol}><div className="openingItemTop"><strong>{row.symbol}</strong><b className={row.direction === "UP WATCH" ? "up" : "down"}>{row.direction === "UP WATCH" ? "↑" : "↓"} {row.score}</b></div><div className="openingItemTags"><span>{row.volumeMultiple.toFixed(1)}× volume</span><span>{row.direction}</span><span>Gap {row.gapPct >= 0 ? "+" : ""}{fmt(row.gapPct)}%</span></div><p>{row.reasons.slice(1).join(" · ")}</p>{row.sectorLabel && <small className="openingSector">{row.sectorLabel}</small>}{filingBadge(row.symbol, row.openingCloseAt)}{row.confirmed && <small className="openingConfirmed">3M {row.direction === "UP WATCH" ? "BUY" : "SELL"} CONFIRMED</small>}</div>)}{openingLeaders.every(row => row.tier !== tier) && <div className="deskEmpty">No qualified stocks in this tier.</div>}</div>)}</div>
         <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Gap-led exception: ≥2% same-direction gap, ≥10× volume, ≥30% body and ≥65% directional close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
         <div className="deskHead"><div><span className="deskKicker">TODAY AT A GLANCE</span><h2>Movement watch & confirmations</h2><p>Pre-market rows are watch candidates. Only a completed 3-minute break is a confirmed signal.</p></div><div className={health.status === "LIVE" ? "statusChip live" : "statusChip"}>{health.status === "LIVE" ? "● LIVE WORKER" : "● WORKER " + health.status}<small>Heartbeat {timeFmt(health.last_run_at)} IST</small></div></div>
         <div className="deskGrid">
-          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? rankedPreMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b>{sectorBadge(row.symbol, row.movement_direction)}<small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
-          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}<small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">PRE-MARKET WATCH <span>{preMarketRows.length} selected</span></div>{preMarketRows.length ? rankedPreMarketRows.slice(0, 4).map(row => <div className="deskItem" key={row.id}><div><b>{row.symbol}</b>{sectorBadge(row.symbol, row.movement_direction)}{filingBadge(row.symbol, row.snapshot_time)}<small>{row.movement_direction} · {row.aligned_snapshots}/{row.observed_snapshots} aligned snapshots</small></div><strong>{fmt(row.indicative_gap_pct)}%</strong></div>) : <div className="deskEmpty">No qualified watch candidates for this session.</div>}<div className="deskFoot">NSE snapshot {timeFmt(preMarketSnapshotTime)} IST · {preMarketSnapshotCount}/9 captured{preMarketSnapshotCount > 0 && !preMarketStudyComplete ? " · incomplete" : ""} · indicative only</div></div>
+          <div className="deskPanel"><div className="deskPanelTitle">ALIGNED CONFIRMATIONS <span>{preMarketConfirmedRows.length} matched</span></div>{preMarketConfirmedRows.length ? preMarketConfirmedRows.slice(0, 4).map(({signal,premarket}) => <div className="deskItem" key={signal.id}><div><b>{signal.symbol} <em className={signal.signal_type === "BUY" ? "up" : "down"}>{signal.signal_type}</em></b>{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{filingBadge(signal.symbol, signal.signal_time)}<small>{signalClock(signal)} · pre-open {premarket.movement_direction}</small></div><strong>{fmt(signal.score,0)}</strong></div>) : <div className="deskEmpty">No pre-market candidate has an aligned confirmed signal yet.</div>}<div className="deskFoot">Agreement is context; it does not change the signal rule.</div></div>
         </div>
       </section>
 
@@ -395,7 +399,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
-                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{filingBadge(item.signal.symbol, item.signal.signal_time)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -412,7 +416,7 @@ export default function Home() {
                   <div className="selectorRank">{index + 1}</div>
                   <div className="selectorSymbol">
                     <strong>{item.signal.symbol}</strong>
-                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}
+                    {sectorBadge(item.signal.symbol, item.signal.signal_type)}{patternBadge(item.signal)}{filingBadge(item.signal.symbol, item.signal.signal_time)}
                     <small>{item.signal.metadata?.company_name ?? item.signal.symbol}</small>
                   </div>
                   <div className="selectorReasons"><span className="alignmentChip">{alignmentFor(item.signal).count}/4 clues</span>{alignmentFor(item.signal).labels.map(label => <span key={label}>{label}</span>)}{item.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
@@ -506,7 +510,7 @@ export default function Home() {
               <thead><tr><th>SYMBOL</th><th>DIRECTION</th><th className="right">WATCH SCORE</th><th className="right">CONSISTENCY</th><th className="right">PREV CLOSE</th><th className="right">INDICATIVE GAP</th><th className="right">IEP</th><th className="right">TRADE QTY</th><th className="right">BUY QTY</th><th className="right">SELL QTY</th><th className="right">IMBALANCE</th><th className="right">OI CHANGE %</th><th>FRESH NEWS, IF AVAILABLE</th></tr></thead>
               <tbody>{rankedPreMarketRows.map((row) => (
                 <tr key={row.id}>
-                  <td className="symbol">{row.symbol}{sectorBadge(row.symbol, row.movement_direction)}</td>
+                  <td className="symbol">{row.symbol}{sectorBadge(row.symbol, row.movement_direction)}{filingBadge(row.symbol, row.snapshot_time)}</td>
                   <td><span className="setupBadge">{row.movement_direction}</span></td>
                   <td className="right num">{row.movement_score}</td>
                   <td className="right num">{row.aligned_snapshots}/3 · {row.observed_snapshots} total</td>
@@ -542,7 +546,7 @@ export default function Home() {
               <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th className="right">SIGNAL SCORE</th><th>SIGNAL TIME</th><th>PRE-MARKET BIAS</th><th className="right">INDICATIVE GAP</th><th className="right">OI CHANGE</th><th>PRE-MARKET CONTEXT</th></tr></thead>
               <tbody>{preMarketConfirmedRows.map(({signal, premarket}) => (
                 <tr key={signal.id}>
-                  <td className="symbol">{signal.symbol}{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}</td>
+                  <td className="symbol">{signal.symbol}{sectorBadge(signal.symbol, signal.signal_type)}{patternBadge(signal)}{filingBadge(signal.symbol, signal.signal_time)}</td>
                   <td><span className="setupBadge">{signal.signal_type}</span></td>
                   <td className="right num">{fmt(signal.score)}</td>
                   <td>{signalClock(signal)}</td>
@@ -603,7 +607,7 @@ export default function Home() {
                  const score = Number(signal.score ?? 0);
                  return <tr key={signal.id}>
                    <td className="timeCell">{timeFmt(signal.signal_time)}</td>
-                   <td className="symbol">{signal.symbol}</td>
+                   <td className="symbol">{signal.symbol}{filingBadge(signal.symbol, signal.signal_time)}</td>
                    <td className="patternCell">{patternBadge(signal)}</td>
                    <td className="alignmentCell"><strong>{alignmentFor(signal).count}/4 clues</strong><div>{alignmentFor(signal).labels.map(label => <span key={label}>{label}</span>)}</div>{alignmentFor(signal).unavailable.length > 0 && <small title={alignmentFor(signal).unavailable.join(', ')}>Unavailable: {alignmentFor(signal).unavailable.join(', ')}</small>}</td>
                    <td><span className={isBuy ? "signalBadge buyBadge" : "signalBadge sellBadge"}><b>{isBuy ? "BUY" : "SELL"}</b><em>CONFIRMED</em></span></td>
