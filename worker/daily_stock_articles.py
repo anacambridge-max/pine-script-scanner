@@ -6,6 +6,7 @@ confirmed scanner signal.
 from __future__ import annotations
 
 import re
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from html.parser import HTMLParser
@@ -23,7 +24,7 @@ INDEX_PAGES = (
     "https://www.moneycontrol.com/markets/earnings/latest-results/",
 )
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; PrimeScanner/1.0; +https://pine-script-scanner.vercel.app)",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     "Accept-Language": "en-IN,en;q=0.9",
 }
 RELEVANT_TITLE = re.compile(r"stocks?\s+to\s+watch|stocks?\s+in\s+focus|results?\s+today|quarterly\s+(?:earnings|results)|latest\s+results|earnings", re.I)
@@ -36,6 +37,8 @@ class _Page(HTMLParser):
         self.links: list[tuple[str, str]] = []
         self.meta: dict[str, str] = {}
         self.paragraphs: list[str] = []
+        self.structured_articles: list[dict] = []
+        self._jsonld: list[str] | None = None
         self._href = ""
         self._anchor: list[str] = []
         self._p_depth = 0
@@ -46,6 +49,8 @@ class _Page(HTMLParser):
         attrs = dict(attrs)
         if tag in {"script", "style", "noscript", "svg"}:
             self._skip += 1
+        if tag == "script" and attrs.get("type", "").lower() == "application/ld+json":
+            self._jsonld = []
         if tag == "meta":
             key = (attrs.get("property") or attrs.get("name") or attrs.get("itemprop") or "").lower()
             value = attrs.get("content")
@@ -60,6 +65,8 @@ class _Page(HTMLParser):
             self._p_depth += 1
 
     def handle_data(self, data):
+        if self._jsonld is not None:
+            self._jsonld.append(data)
         if self._skip:
             return
         if self._href:
@@ -68,6 +75,16 @@ class _Page(HTMLParser):
             self._p.append(data)
 
     def handle_endtag(self, tag):
+        if tag == "script" and self._jsonld is not None:
+            try:
+                data = json.loads("".join(self._jsonld))
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    if isinstance(item, dict) and isinstance(item.get("articleBody"), str):
+                        self.structured_articles.append(item)
+            except ValueError:
+                pass
+            self._jsonld = None
         if tag in {"script", "style", "noscript", "svg"}:
             self._skip = max(0, self._skip - 1)
         if tag == "a" and self._href:
@@ -90,7 +107,8 @@ def _fetch(url: str) -> str:
 
 
 def _published_from_page(page: _Page) -> datetime | None:
-    raw = next((page.meta[key] for key in (
+    raw = next((item.get("datePublished") for item in page.structured_articles if item.get("datePublished")), None)
+    raw = raw or next((page.meta[key] for key in (
         "article:published_time", "og:article:published_time", "datepublished",
         "publishdate", "pubdate", "time:datetime",
     ) if page.meta.get(key)), None)
@@ -127,7 +145,7 @@ def _aliases(instrument: dict) -> list[str]:
         value = re.sub(r"[^a-z0-9]+", " ", alias.lower()).strip()
         value = re.sub(r"\b(limited|ltd|india|inc|corporation|corp|company|co|plc)\b", " ", value)
         value = re.sub(r"\s+", " ", value).strip()
-        if len(value) >= 4 and value not in cleaned:
+        if len(value) >= 3 and value not in cleaned:
             cleaned.append(value)
     return cleaned
 
@@ -135,6 +153,11 @@ def _aliases(instrument: dict) -> list[str]:
 def _matches(blob: str, aliases: list[str]) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", " ", blob.lower())
     return any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized) for alias in aliases)
+
+
+def _starts_with_alias(blob: str, aliases: list[str]) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", blob.lower()).strip()
+    return any(normalized.startswith(alias + " ") or normalized == alias for alias in aliases)
 
 
 def _classify(title: str, paragraph: str, source: str) -> str:
@@ -176,7 +199,7 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
             page = _Page()
             page.feed(_fetch(url))
             published = _published_from_page(page)
-            title = page.meta.get("og:title") or page.meta.get("twitter:title") or title
+            title = (page.structured_articles[0].get("headline") if page.structured_articles else None) or page.meta.get("og:title") or page.meta.get("twitter:title") or title
             if published and published.date() == today and published <= now.astimezone(IST):
                 return url, (title[:300], source, page, published)
         except Exception as exc:
@@ -194,11 +217,15 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
         aliases = _aliases(instrument)
         matched = []
         for url, (title, source, page, published) in pages.items():
-            relevant_paragraphs = [paragraph for paragraph in page.paragraphs if _matches(paragraph, aliases)]
+            article_sections = [section.strip() for item in page.structured_articles
+                                for section in item["articleBody"].split("\n\n") if section.strip()]
+            relevant_paragraphs = [paragraph for paragraph in (article_sections or page.paragraphs)
+                                   if paragraph != title and _matches(paragraph, aliases)]
+            relevant_paragraphs.sort(key=lambda paragraph: not _starts_with_alias(paragraph, aliases))
             title_match = _matches(title, aliases)
             if not relevant_paragraphs and not title_match:
                 continue
-            context = " ".join(relevant_paragraphs[:3]) or title
+            context = " ".join(relevant_paragraphs[:2]) or title
             matched.append({
                 "title": title, "url": url, "published_at": published.isoformat(),
                 "source": source, "kind": _classify(title, context, source),
@@ -206,4 +233,5 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
             })
         if matched:
             result[symbol] = sorted(matched, key=lambda item: (item["kind"] != "EARNINGS / RESULTS", item["published_at"]), reverse=True)[:8]
+    print(f"[DAILY ARTICLES] {today}: {len(candidates)} candidates, {len(pages)} today articles, {len(result)} matched symbols")
     return result

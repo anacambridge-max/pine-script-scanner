@@ -36,3 +36,33 @@ def test_same_day_publisher_mentions_and_moneycontrol_results(monkeypatch):
     assert found["DIXON"][0]["kind"] == "EARNINGS / RESULTS"
     assert all(item["published_at"].startswith("2026-11-03") for rows in found.values() for item in rows)
     assert all("NOT A TRADE SIGNAL" in item["impact"] for rows in found.values() for item in rows)
+
+
+def test_upstox_jsonld_date_and_article_body_when_moneycontrol_is_blocked(monkeypatch):
+    import json
+
+    index = "https://upstox.com/news/market-news/stocks/"
+    article = "https://upstox.com/news/market-news/stocks/stocks-to-watch-nov-3/article-2/"
+    blocked = "https://www.moneycontrol.com/news/business/markets/"
+    body = "Lupin: Earnings are due today.\n\nITC: Quarterly revenue rose."
+    structured = {"@type": "NewsArticle", "headline": "Stocks to watch, Nov 3: Lupin, ITC",
+                  "datePublished": "2026-11-03T08:13:32+05:30", "articleBody": body}
+    pages = {index: f'<a href="{article}">Stocks to watch, Nov 3: Lupin, ITC</a>',
+             article: f'<script type="application/ld+json">{json.dumps(structured)}</script>'}
+
+    def fetch(url):
+        if url == blocked:
+            raise PermissionError("403 Forbidden")
+        return pages[url]
+
+    monkeypatch.setattr(articles, "INDEX_PAGES", (index, blocked))
+    monkeypatch.setattr(articles, "_fetch", fetch)
+    found = articles.fetch_daily_stock_articles(
+        [{"trading_symbol": "LUPIN", "company_name": "Lupin Limited"},
+         {"trading_symbol": "ITC", "company_name": "ITC Limited"}],
+        datetime(2026, 11, 3, 9, 20, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert set(found) == {"LUPIN", "ITC"}
+    assert found["LUPIN"][0]["context"] == "Lupin: Earnings are due today."
+    assert found["ITC"][0]["context"] == "ITC: Quarterly revenue rose."

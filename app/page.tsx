@@ -141,7 +141,7 @@ export default function Home() {
     const seen = new Set<string>();
     return marketContext.flatMap(row => (row.market_evidence?.daily_articles ?? []).map(article => ({symbol: row.symbol, article})))
       .filter(({article}) => Date.parse(article.published_at) <= now && Date.parse(article.published_at) >= now - 24 * 60 * 60 * 1000)
-      .filter(({article}) => { const key = `${article.url}|${article.kind}|${article.context}`; if (seen.has(key)) return false; seen.add(key); return true; })
+      .filter(({symbol, article}) => { const key = `${symbol}|${article.url}|${article.kind}`; if (seen.has(key)) return false; seen.add(key); return true; })
       .sort((a,b) => Number(b.article.kind === "EARNINGS / RESULTS") - Number(a.article.kind === "EARNINGS / RESULTS") || Date.parse(b.article.published_at) - Date.parse(a.article.published_at))
       .slice(0, 24);
   }, [marketContext]);
