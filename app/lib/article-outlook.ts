@@ -11,9 +11,12 @@ const negativeOI = new Set(["SHORT BUILDUP", "LONG UNWINDING"]);
 
 function articleTone(context: string | undefined): "BUY" | "SELL" | null {
   const text = context?.toLowerCase() ?? "";
-  if (!text || text.length > 400 || /results? today|earnings (?:on|today)|will (?:announce|release|post)/.test(text)) return null;
-  const positive = /profit (?:rose|rises|grew|jumps|surges|soars)|order win|won (?:an? )?order|contract win|approval|approved|revenue (?:rose|rises|grew|jumps|surges)/.test(text);
-  const negative = /profit (?:fell|falls|declines|drops|plunges)|loss (?:widens|rises)|revenue (?:fell|falls|declines|drops|plunges)/.test(text);
+  if (!text || /results? today|earnings (?:on|today)|will (?:announce|release|post)/.test(text)) return null;
+  const metric = "(?:profit|revenue|sales|pat)";
+  const up = "(?:rose|rises|grew|jumps?|jumped|surges?|surged|soars?|soared|increase[ds]?|growth)";
+  const down = "(?:fell|falls?|declines?|declined|drops?|dropped|plunges?|plunged|slips?|slipped|decrease[ds]?)";
+  const positive = new RegExp(`\\b${metric}\\b.{0,45}\\b${up}\\b|\\b${up}\\b.{0,45}\\b${metric}\\b`).test(text) || /order win|won (?:an? )?order|contract win|approval|approved/.test(text);
+  const negative = new RegExp(`\\b${metric}\\b.{0,45}\\b${down}\\b|\\b${down}\\b.{0,45}\\b${metric}\\b`).test(text) || /loss (?:widens|rises)/.test(text);
   return positive === negative ? null : positive ? "BUY" : "SELL";
 }
 

@@ -94,6 +94,17 @@ test('article outlook scores four timely clues without turning mentions into sig
   const late = rankArticleOutlooks([row('DIXON',[article('DIXON','2026-11-03T09:30:00+05:30','DIXON profit rose')])],premarket,signals,now)[0];
   assert.equal(late.confirmed,true);
   assert.equal(late.clues.includes('Article catalyst'),false);
+  const earnings = symbol => ({...row(symbol,[article(symbol,'2026-11-03T08:00:00+05:30',symbol === 'MARICO'
+    ? 'Marico Q2 Profit jumps 29% Revenue grows 13%'
+    : 'ITC Q2 Profit falls 18% Revenue surges 44%')]),
+    sector_context:{},market_evidence:{...row(symbol,[]).market_evidence,opening:{status:'PENDING'},oi:{label:'MIXED',quote_time:'2026-11-03T09:58:00+05:30'},
+      daily_articles:[article(symbol,'2026-11-03T08:00:00+05:30',symbol === 'MARICO'
+        ? 'Marico Q2 Profit jumps 29% Revenue grows 13%'
+        : 'ITC Q2 Profit falls 18% Revenue surges 44%')]}});
+  const earningsPre = ['MARICO','ITC'].map(symbol => ({symbol,snapshot_time:'2026-11-03T09:07:00+05:30',movement_direction:'UP WATCH',movement_score:70,aligned_snapshots:3}));
+  const scored = rankArticleOutlooks([earnings('MARICO'),earnings('ITC')],earningsPre,[],now);
+  assert.equal(scored.find(item => item.symbol === 'MARICO').direction,'BUY');
+  assert.equal(scored.find(item => item.symbol === 'ITC').direction,null);
 });
 
 test('signal query keeps both IST bounds and confirmed 3m filters', async () => {
