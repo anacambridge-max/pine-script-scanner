@@ -352,7 +352,7 @@ export default function Home() {
       </section>
 
       <section className="filingsPanel" aria-label="Daily article stock movement outlook">
-        <div className="filingsHead"><div><span className="deskKicker">TODAY’S ARTICLE STOCKS · MONEYCONTROL + UPSTOX</span><h2>Buying &amp; selling watch</h2><p>Same-day article stocks checked against pre-market, opening volume and price, sector, and timely news/OI. A watch is conditional; only the scanner’s 3-minute rule confirms a signal.</p></div><span className="filingsCount">{articleOutlooks.length} stocks assessed</span></div>
+        <div className="filingsHead"><div><span className="deskKicker">TODAY’S ARTICLE STOCKS · MONEYCONTROL + UPSTOX</span><h2>Buying &amp; selling watch</h2><p>All article stocks in the F&amp;O scanner universe are checked against pre-market, opening volume and price, sector, and timely news/OI. Only the scanner’s 3-minute rule confirms a signal.</p></div><span className="filingsCount">{articleOutlooks.length} stocks assessed</span></div>
         {articleOutlooks.length ? <><div className="outlookGrid">{(["BUY", "SELL"] as const).map(direction => {
           const rows = articleOutlooks.filter(row => row.direction === direction);
           return <div className="outlookColumn" key={direction}><div className={`outlookTitle ${direction === "BUY" ? "up" : "down"}`}>{direction === "BUY" ? "POSSIBLE BUYING" : "POSSIBLE SELLING"}<span>{rows.length}</span></div>
@@ -362,7 +362,14 @@ export default function Home() {
               <small className="outlookMeta">{row.sources.join(" + ")} · Missing: {row.missing.join(", ") || "none"}{row.articles[0] && <a href={row.articles[0].url} target="_blank" rel="noreferrer" title={row.articles[0].title}>Source ↗</a>}</small>
             </div>) : <div className="deskEmpty">No article stock has enough {direction === "BUY" ? "buying" : "selling"} evidence yet.</div>}
           </div>;
-        })}</div><p className="outlookFoot">{articleAwaiting} article stocks await clearer direction. The four clues rank evidence observed so far; they are not a probability or a trade recommendation.</p></>
+        })}</div><div className="outlookColumn outlookPending"><div className="outlookTitle">NEEDS CONFIRMATION <span>{articleAwaiting}</span></div>
+          {articleOutlooks.filter(row => !row.direction).map(row => <div className="outlookRow" key={row.symbol}>
+            <div className="outlookName"><strong>{row.symbol}</strong><span className="outlookWatch">{row.lean ? `${row.lean} TILT · NOT CONFIRMED` : "NO CLEAR DIRECTION"}</span><b>{row.score}/4 clues</b></div>
+            {row.clues.length > 0 && <div className="outlookClues">{row.clues.map(clue => <span key={clue}>{clue}</span>)}</div>}
+            <small className="outlookMeta">{row.sources.join(" + ")} · Missing: {row.missing.join(", ") || "none"}{row.articles[0] && <a href={row.articles[0].url} target="_blank" rel="noreferrer" title={row.articles[0].title}>Source ↗</a>}</small>
+          </div>)}
+          {!articleAwaiting && <div className="deskEmpty">Every assessed article stock has a directional watch or a confirmed signal.</div>}
+        </div><p className="outlookFoot">All {articleOutlooks.length} matched article stocks are shown. A tilt needs more evidence before it becomes a directional watch; the four clues are not a probability or a trade recommendation.</p></>
           : <div className="filingsEmpty">No same-day Moneycontrol or Upstox article has matched the scanner universe yet. The worker checks publisher pages every 15 minutes.</div>}
       </section>
 
@@ -696,6 +703,9 @@ export default function Home() {
         .filingsHead p { margin:0; color:#91a9c2; font-size:11px; }
         .filingsCount { padding:7px 11px; border:1px solid #3a607b; border-radius:18px; color:#b5d9ef; font-size:11px; font-weight:800; white-space:nowrap; }
         .outlookGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+        .outlookPending { margin-top:12px; }
+        .outlookPending .outlookRow { display:inline-block; width:50%; vertical-align:top; box-sizing:border-box; }
+        .outlookPending .outlookRow:nth-child(odd) { border-right:1px solid #1d3043; }
         .outlookColumn { min-width:0; border:1px solid #28445d; border-radius:11px; background:#0a1623; overflow:hidden; }
         .outlookTitle { display:flex; justify-content:space-between; padding:11px 13px; border-bottom:1px solid #28445d; background:#102034; font-size:11px; font-weight:900; letter-spacing:.5px; }
         .outlookRow { padding:10px 13px; border-bottom:1px solid #1d3043; }
@@ -847,7 +857,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns,.outlookGrid { grid-template-columns:1fr; } .filingsHead { align-items:flex-start; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns,.outlookGrid { grid-template-columns:1fr; } .outlookPending .outlookRow { display:block; width:100%; border-right:0; } .filingsHead { align-items:flex-start; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
       `}</style>
     </main>
   );

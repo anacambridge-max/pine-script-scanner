@@ -105,6 +105,13 @@ test('article outlook scores four timely clues without turning mentions into sig
   const scored = rankArticleOutlooks([earnings('MARICO'),earnings('ITC')],earningsPre,[],now);
   assert.equal(scored.find(item => item.symbol === 'MARICO').direction,'BUY');
   assert.equal(scored.find(item => item.symbol === 'ITC').direction,null);
+  assert.equal(scored.find(item => item.symbol === 'ITC').lean,'BUY');
+  assert.equal(scored.find(item => item.symbol === 'ITC').score,1);
+  assert.deepEqual(scored.find(item => item.symbol === 'ITC').missing,['Opening','Sector','News/OI']);
+  const articleOnly = rankArticleOutlooks([earnings('ITC')],[],[],now);
+  assert.equal(articleOnly.length,1);
+  assert.equal(articleOnly[0].direction,null);
+  assert.equal(articleOnly[0].score,0);
 });
 
 test('signal query keeps both IST bounds and confirmed 3m filters', async () => {
