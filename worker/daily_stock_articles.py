@@ -222,8 +222,12 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
             article_sections = [section.strip() for item in page.structured_articles
                                 for section in re.sub(r"\r[ \t]*\r", "\n\n", item["articleBody"].replace("\r\n", "\n")).split("\n\n")
                                 if section.strip()]
+            results_list = next((article_sections[index + 1] for index, section in enumerate(article_sections[:-1])
+                                 if section.strip().lower() == "results today"), None)
             relevant_paragraphs = [paragraph for paragraph in (article_sections or page.paragraphs)
-                                   if paragraph != title and _matches(paragraph, aliases)]
+                                   if paragraph != title and _matches(paragraph, aliases)
+                                   and (source != "Moneycontrol" or _starts_with_alias(paragraph, aliases)
+                                        or paragraph == results_list)]
             relevant_paragraphs.sort(key=lambda paragraph: not _starts_with_alias(paragraph, aliases))
             title_match = _matches(title, aliases)
             if not relevant_paragraphs and not title_match:

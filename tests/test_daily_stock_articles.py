@@ -75,14 +75,15 @@ def test_moneycontrol_article_body_excludes_unrelated_sidebar(monkeypatch):
     article = "https://www.moneycontrol.com/news/business/markets/stocks-to-watch-today.html"
     structured = {"@type": "NewsArticle", "headline": "Stocks to watch today",
                   "datePublished": "2026-11-03T06:36:14+05:30",
-                  "articleBody": "ITC Q2 results\r \rProfit fell today.\r \rRevenue surged.\r \rMarico Q2 results\r \rProfit rose today."}
+                  "articleBody": "ITC Q2 results\r \rProfit fell today.\r \rRevenue surged.\r \rMarico Q2 results\r \rProfit rose today.\r \rNBCC Q2: won a contract from Hindustan Aeronautics."}
     raw_json = json.dumps([structured]).replace("\\r", "\r")
     pages = {index: f'<a href="{article}">Stocks to watch today</a>',
              article: f'<script type="application/ld+json">{raw_json}</script><p>HAL stock rises elsewhere</p>'}
     monkeypatch.setattr(articles, "INDEX_PAGES", (index,))
     monkeypatch.setattr(articles, "_fetch", pages.__getitem__)
     found = articles.fetch_daily_stock_articles(
-        [{"trading_symbol": symbol, "company_name": symbol} for symbol in ("ITC", "MARICO", "HAL")],
+        [{"trading_symbol": symbol, "company_name": "Hindustan Aeronautics" if symbol == "HAL" else symbol}
+         for symbol in ("ITC", "MARICO", "HAL")],
         datetime(2026, 11, 3, 9, 20, tzinfo=ZoneInfo("Asia/Kolkata")),
     )
 
