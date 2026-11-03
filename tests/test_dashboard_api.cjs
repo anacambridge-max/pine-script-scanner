@@ -53,17 +53,47 @@ test('confirmed alignment counts only timely directional clues and keeps NR patt
   assert.equal(signalAlignment({...signal, metadata: {...signal.metadata, sector_rank_type: undefined, movement_evidence: undefined}}, premarket, context).count, 2);
 });
 
-test('NSE filing context respects event time and cannot become a directional confirmation clue', () => {
-  const {latestFiling} = require('../app/lib/market-context.ts');
+test('publisher article context respects event time and does not create directional confirmation', () => {
+  const {latestDailyArticle} = require('../app/lib/market-context.ts');
   const {signalAlignment} = require('../app/lib/signal-alignment.ts');
-  const filings = [
-    {title:'Quarterly results',url:'https://nsearchives.nseindia.com/corporate/a.pdf',published_at:'2026-10-30T16:07:00+05:30',source:'NSE filing',period:'PREVIOUS SESSION',impact:'MATERIAL EVENT / DIRECTION UNVERIFIED',category:'RESULTS'},
-    {title:'Later result',url:'https://nsearchives.nseindia.com/corporate/b.pdf',published_at:'2026-11-02T10:00:00+05:30',source:'NSE filing',period:'SAME DAY',impact:'MATERIAL EVENT / DIRECTION UNVERIFIED',category:'RESULTS'},
+  const articles = [
+    {title:'Stocks to watch',url:'https://upstox.com/news/a',published_at:'2026-11-03T08:00:00+05:30',source:'Upstox',kind:'STOCKS TO WATCH',impact:'CONTEXT / NOT A TRADE SIGNAL'},
+    {title:'Results today',url:'https://www.moneycontrol.com/news/b',published_at:'2026-11-03T07:00:00+05:30',source:'Moneycontrol',kind:'EARNINGS / RESULTS',impact:'CONTEXT / NOT A TRADE SIGNAL'},
+    {title:'Later result',url:'https://www.moneycontrol.com/news/c',published_at:'2026-11-03T10:00:00+05:30',source:'Moneycontrol',kind:'EARNINGS / RESULTS',impact:'CONTEXT / NOT A TRADE SIGNAL'},
   ];
-  assert.equal(latestFiling(filings, '2026-11-02T09:15:00+05:30').title, 'Quarterly results');
-  const signal = {symbol:'DIXON',signal_type:'BUY',signal_state:'CONFIRMED',signal_time:'2026-11-02T09:15:00+05:30'};
-  const context = {market_evidence:{filings,opening:{status:'PENDING'}}};
+  assert.equal(latestDailyArticle(articles, '2026-11-03T09:15:00+05:30').title, 'Results today');
+  assert.equal(latestDailyArticle(articles, 'invalid'), undefined);
+  const signal = {symbol:'DIXON',signal_type:'BUY',signal_state:'CONFIRMED',signal_time:'2026-11-03T09:15:00+05:30'};
+  const context = {market_evidence:{daily_articles:articles,opening:{status:'PENDING'}}};
   assert.equal(signalAlignment(signal, [], context).count, 0);
+});
+
+test('article outlook scores four timely clues without turning mentions into signals', () => {
+  const {rankArticleOutlooks} = require('../app/lib/article-outlook.ts');
+  const now = new Date('2026-11-03T10:00:00+05:30');
+  const article = (symbol, published_at, context = `${symbol} will announce results today`) => ({
+    title:`${symbol} in focus`,url:`https://upstox.com/news/${symbol}`,published_at,source:'Upstox',kind:'STOCKS TO WATCH',context,
+  });
+  const row = (symbol, articles) => ({symbol,observed_at:'2026-11-03T09:58:00+05:30',
+    sector_context:{sector:'NIFTY IT',sector_change:1.5,sector_gainer_rank:2,sector_observed_at:'2026-11-03T09:58:00+05:30',sector_fresh:true},
+    market_evidence:{daily_articles:articles,opening:{status:'READY',timestamp:'2026-11-03T09:15:00+05:30',open:100,close:102,move_pct:2,volume_multiple:6,body_ratio:.7,close_location:.9},
+      oi:{label:'LONG BUILDUP',quote_time:'2026-11-03T09:58:00+05:30'},news:[]},
+  });
+  const signals = [{symbol:'DIXON',signal_type:'BUY',signal_state:'CONFIRMED',signal_time:'2026-11-03T09:15:00+05:30',
+    metadata:{sector_rank_type:'TOP 3 GAINER',movement_evidence:{confirmed_at:'2026-11-03T09:18:00+05:30',observed_at:'2026-11-03T09:17:00+05:30',oi:{label:'LONG BUILDUP'},news:[]}}}];
+  const premarket = [{symbol:'DIXON',snapshot_time:'2026-11-03T09:07:00+05:30',movement_direction:'UP WATCH',movement_score:70,aligned_snapshots:3}];
+  const result = rankArticleOutlooks([
+    row('DIXON',[article('DIXON','2026-11-03T08:00:00+05:30')]),
+    row('LUPIN',[article('LUPIN','2026-11-03T08:00:00+05:30')]),
+    row('MARICO',[article('MARICO','2026-11-03T08:00:00+05:30','MARICO earnings due today')]),
+  ],premarket,signals,now);
+  assert.equal(result.find(item => item.symbol === 'DIXON').score, 4);
+  assert.equal(result.find(item => item.symbol === 'DIXON').confirmed, true);
+  assert.equal(result.find(item => item.symbol === 'LUPIN').confirmed, false);
+  assert.equal(result.find(item => item.symbol === 'MARICO').confirmed, false);
+  const late = rankArticleOutlooks([row('DIXON',[article('DIXON','2026-11-03T09:30:00+05:30','DIXON profit rose')])],premarket,signals,now)[0];
+  assert.equal(late.confirmed,true);
+  assert.equal(late.clues.includes('Article catalyst'),false);
 });
 
 test('signal query keeps both IST bounds and confirmed 3m filters', async () => {

@@ -77,7 +77,9 @@ class _Page(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "script" and self._jsonld is not None:
             try:
-                data = json.loads("".join(self._jsonld))
+                # Moneycontrol puts literal control characters inside its
+                # NewsArticle JSON strings, which strict JSON parsing rejects.
+                data = json.loads("".join(self._jsonld), strict=False)
                 items = data if isinstance(data, list) else [data]
                 for item in items:
                     if isinstance(item, dict) and isinstance(item.get("articleBody"), str):
@@ -218,7 +220,8 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
         matched = []
         for url, (title, source, page, published) in pages.items():
             article_sections = [section.strip() for item in page.structured_articles
-                                for section in item["articleBody"].split("\n\n") if section.strip()]
+                                for section in re.sub(r"\r[ \t]*\r", "\n\n", item["articleBody"].replace("\r\n", "\n")).split("\n\n")
+                                if section.strip()]
             relevant_paragraphs = [paragraph for paragraph in (article_sections or page.paragraphs)
                                    if paragraph != title and _matches(paragraph, aliases)]
             relevant_paragraphs.sort(key=lambda paragraph: not _starts_with_alias(paragraph, aliases))
@@ -226,6 +229,16 @@ def fetch_daily_stock_articles(instruments: list[dict], now: datetime | None = N
             if not relevant_paragraphs and not title_match:
                 continue
             context = " ".join(relevant_paragraphs[:2]) or title
+            # Results pages separate the company heading from the actual profit
+            # and revenue lines. Keep those lines with the matching company only.
+            if relevant_paragraphs and re.search(r"\bQ[1-4]\b", relevant_paragraphs[0], re.I):
+                heading = relevant_paragraphs[0]
+                following = []
+                for section in article_sections[article_sections.index(heading) + 1:]:
+                    if re.search(r"\bQ[1-4]\b", section, re.I) or len(following) >= 2:
+                        break
+                    following.append(section)
+                context = " ".join([heading, *following])
             matched.append({
                 "title": title, "url": url, "published_at": published.isoformat(),
                 "source": source, "kind": _classify(title, context, source),

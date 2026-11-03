@@ -66,3 +66,26 @@ def test_upstox_jsonld_date_and_article_body_when_moneycontrol_is_blocked(monkey
     assert set(found) == {"LUPIN", "ITC"}
     assert found["LUPIN"][0]["context"] == "Lupin: Earnings are due today."
     assert found["ITC"][0]["context"] == "ITC: Quarterly revenue rose."
+
+
+def test_moneycontrol_article_body_excludes_unrelated_sidebar(monkeypatch):
+    import json
+
+    index = "https://www.moneycontrol.com/news/business/markets/"
+    article = "https://www.moneycontrol.com/news/business/markets/stocks-to-watch-today.html"
+    structured = {"@type": "NewsArticle", "headline": "Stocks to watch today",
+                  "datePublished": "2026-11-03T06:36:14+05:30",
+                  "articleBody": "ITC Q2 results\r \rProfit fell today.\r \rRevenue surged.\r \rMarico Q2 results\r \rProfit rose today."}
+    raw_json = json.dumps([structured]).replace("\\r", "\r")
+    pages = {index: f'<a href="{article}">Stocks to watch today</a>',
+             article: f'<script type="application/ld+json">{raw_json}</script><p>HAL stock rises elsewhere</p>'}
+    monkeypatch.setattr(articles, "INDEX_PAGES", (index,))
+    monkeypatch.setattr(articles, "_fetch", pages.__getitem__)
+    found = articles.fetch_daily_stock_articles(
+        [{"trading_symbol": symbol, "company_name": symbol} for symbol in ("ITC", "MARICO", "HAL")],
+        datetime(2026, 11, 3, 9, 20, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert set(found) == {"ITC", "MARICO"}
+    assert found["ITC"][0]["context"] == "ITC Q2 results Profit fell today. Revenue surged."
+    assert found["MARICO"][0]["context"] == "Marico Q2 results Profit rose today."

@@ -6,6 +6,7 @@ import { selectionRules, compareSelections } from "./lib/trade-selection";
 import { buildCommonStockRows } from "./lib/cross-section";
 import { marketBreadth, sectorRotation, selectOpeningLeaders } from "./lib/opening-dashboard";
 import { signalAlignment } from "./lib/signal-alignment";
+import { rankArticleOutlooks } from "./lib/article-outlook";
 
 type HotStock = {
   id: string; trade_date: string; symbol: string; company_name: string | null;
@@ -136,15 +137,8 @@ export default function Home() {
   const alignmentFor = (signal: Signal) => signalAlignment(signal, preMarketRows, contextBySymbol.get(signal.symbol));
   const breadth = useMemo(() => marketBreadth(marketContext, health.universe_count || marketContext.length), [marketContext, health.universe_count]);
   const rotatingSectors = useMemo(() => sectorRotation(marketContext), [marketContext]);
-  const dailyArticles = useMemo(() => {
-    const now = Date.now();
-    const seen = new Set<string>();
-    return marketContext.flatMap(row => (row.market_evidence?.daily_articles ?? []).map(article => ({symbol: row.symbol, article})))
-      .filter(({article}) => Date.parse(article.published_at) <= now && Date.parse(article.published_at) >= now - 24 * 60 * 60 * 1000)
-      .filter(({symbol, article}) => { const key = `${symbol}|${article.url}|${article.kind}`; if (seen.has(key)) return false; seen.add(key); return true; })
-      .sort((a,b) => Number(b.article.kind === "EARNINGS / RESULTS") - Number(a.article.kind === "EARNINGS / RESULTS") || Date.parse(b.article.published_at) - Date.parse(a.article.published_at))
-      .slice(0, 24);
-  }, [marketContext]);
+  const articleOutlooks = useMemo(() => rankArticleOutlooks(marketContext, preMarketRows, signals), [marketContext, preMarketRows, signals]);
+  const articleAwaiting = articleOutlooks.filter(row => !row.direction).length;
 
   async function loadHotStocks() {
     try {
@@ -357,15 +351,19 @@ export default function Home() {
         <small className="openingNote openingFooter">Minimum: 3× relative opening volume, 35% candle body, directional close near the candle edge and 0.5% move from previous close. Gap-led exception: ≥2% same-direction gap, ≥10× volume, ≥30% body and ≥65% directional close. Scores rank observed setups, not future returns. Volume alone cannot identify institutional buying.</small>
       </section>
 
-      <section className="filingsPanel" aria-label="Daily publisher stock watch and earnings articles">
-        <div className="filingsHead"><div><span className="deskKicker">SAME-DAY MARKET COVERAGE · MONEYCONTROL + UPSTOX</span><h2>Stocks to watch &amp; earnings</h2><p>Stocks mentioned in today’s watchlist articles and Moneycontrol results coverage. Publisher coverage is context only; it does not confirm direction or create a signal.</p></div><span className="filingsCount">{dailyArticles.length} mentions</span></div>
-        {dailyArticles.length ? <div className="filingsGrid">{dailyArticles.map(({symbol, article}, index) => <article className="filingCard" key={`${symbol}-${article.url}-${index}`}>
-          <div className="filingCardTop"><strong>{symbol}</strong><span>{article.source.toUpperCase()}</span></div>
-          <div className="filingBadges"><b>{article.kind}</b><span>CONTEXT · NOT A SIGNAL</span></div>
-          <p className="filingSummary">{article.context || article.title}</p>
-          <details className="filingDetails"><summary>Article headline</summary><p>{article.title}</p></details>
-          <div className="filingCardFooter"><small>Today · {timeFmt(article.published_at)} IST</small><a href={article.url} target="_blank" rel="noreferrer">Open article ↗</a></div>
-        </article>)}</div> : <div className="filingsEmpty">No same-day stock-watch or Moneycontrol earnings article has matched the scanner universe yet. The worker checks publisher pages every 15 minutes.</div>}
+      <section className="filingsPanel" aria-label="Daily article stock movement outlook">
+        <div className="filingsHead"><div><span className="deskKicker">TODAY’S ARTICLE STOCKS · MONEYCONTROL + UPSTOX</span><h2>Buying &amp; selling watch</h2><p>Same-day article stocks checked against pre-market, opening volume and price, sector, and timely news/OI. A watch is conditional; only the scanner’s 3-minute rule confirms a signal.</p></div><span className="filingsCount">{articleOutlooks.length} stocks assessed</span></div>
+        {articleOutlooks.length ? <><div className="outlookGrid">{(["BUY", "SELL"] as const).map(direction => {
+          const rows = articleOutlooks.filter(row => row.direction === direction);
+          return <div className="outlookColumn" key={direction}><div className={`outlookTitle ${direction === "BUY" ? "up" : "down"}`}>{direction === "BUY" ? "POSSIBLE BUYING" : "POSSIBLE SELLING"}<span>{rows.length}</span></div>
+            {rows.length ? rows.map(row => <div className="outlookRow" key={row.symbol}>
+              <div className="outlookName"><strong>{row.symbol}</strong><span className={row.confirmed ? "outlookConfirmed" : "outlookWatch"}>{row.confirmed ? `${direction} CONFIRMED` : "WATCH ONLY"}</span><b>{row.score}/4 clues</b></div>
+              <div className="outlookClues">{row.clues.map(clue => <span key={clue}>{clue}</span>)}</div>
+              <small className="outlookMeta">{row.sources.join(" + ")} · Missing: {row.missing.join(", ") || "none"}{row.articles[0] && <a href={row.articles[0].url} target="_blank" rel="noreferrer" title={row.articles[0].title}>Source ↗</a>}</small>
+            </div>) : <div className="deskEmpty">No article stock has enough {direction === "BUY" ? "buying" : "selling"} evidence yet.</div>}
+          </div>;
+        })}</div><p className="outlookFoot">{articleAwaiting} article stocks await clearer direction. The four clues rank evidence observed so far; they are not a probability or a trade recommendation.</p></>
+          : <div className="filingsEmpty">No same-day Moneycontrol or Upstox article has matched the scanner universe yet. The worker checks publisher pages every 15 minutes.</div>}
       </section>
 
       <section className="desk" aria-label="Scanner decision overview">
@@ -697,23 +695,23 @@ export default function Home() {
         .filingsHead h2 { margin:4px 0; font-size:19px; }
         .filingsHead p { margin:0; color:#91a9c2; font-size:11px; }
         .filingsCount { padding:7px 11px; border:1px solid #3a607b; border-radius:18px; color:#b5d9ef; font-size:11px; font-weight:800; white-space:nowrap; }
-        .filingsGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
-        .filingCard { display:flex; min-width:0; flex-direction:column; padding:12px; border:1px solid #28445d; border-radius:10px; background:#0a1623; color:#dce9f4; }
-        .filingCard:hover { border-color:#60caa8; background:#0d1e2d; }
-        .filingCardTop { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px; }
-        .filingCardTop strong { color:#78e0b4; font-size:13px; }
-        .filingCardTop span { color:#f2d38e; font-size:9px; font-weight:800; }
-        .filingBadges { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-        .filingBadges b { color:#a9d8ff; font-size:10px; }
-        .filingBadges span { padding:3px 5px; border:1px solid #69562e; border-radius:5px; background:#282214; color:#f1cd79; font-size:8px; font-weight:900; letter-spacing:.35px; }
-        .filingCard .filingSummary { min-height:56px; margin:8px 0 5px; color:#c0cedd; font-size:11px; line-height:1.5; }
-        .filingDetails { margin:3px 0 9px; color:#8197ad; font-size:9px; }
-        .filingDetails summary { cursor:pointer; }
-        .filingDetails p { margin:5px 0; color:#91a9c2; font-size:10px; line-height:1.5; }
-        .filingCardFooter { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:auto; }
-        .filingCard small { color:#718ba6; font-size:9px; }
-        .filingCardFooter a { color:#70dcb1; font-size:9px; font-weight:800; text-decoration:none; }
-        .filingCardFooter a:hover { text-decoration:underline; }
+        .outlookGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+        .outlookColumn { min-width:0; border:1px solid #28445d; border-radius:11px; background:#0a1623; overflow:hidden; }
+        .outlookTitle { display:flex; justify-content:space-between; padding:11px 13px; border-bottom:1px solid #28445d; background:#102034; font-size:11px; font-weight:900; letter-spacing:.5px; }
+        .outlookRow { padding:10px 13px; border-bottom:1px solid #1d3043; }
+        .outlookRow:last-child { border-bottom:0; }
+        .outlookName { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+        .outlookName strong { margin-right:auto; color:#e6f2ff; font-size:13px; }
+        .outlookName b { color:#a9c9df; font-size:11px; font-variant-numeric:tabular-nums; }
+        .outlookConfirmed,.outlookWatch { padding:3px 6px; border-radius:5px; font-size:9px; font-weight:900; letter-spacing:.3px; }
+        .outlookConfirmed { border:1px solid #478e74; color:#65e3b1; background:#12362b; }
+        .outlookWatch { border:1px solid #49647e; color:#a7c3dd; background:#15283b; }
+        .outlookClues { display:flex; flex-wrap:wrap; gap:5px; margin:7px 0 5px; }
+        .outlookClues span { padding:3px 6px; border:1px solid #37625f; border-radius:5px; color:#9de0c5; font-size:9px; }
+        .outlookMeta { display:block; color:#8199af; font-size:9px; line-height:1.4; }
+        .outlookMeta a { float:right; margin-left:8px; color:#89c9ef; text-decoration:none; }
+        .outlookMeta a:hover { text-decoration:underline; }
+        .outlookFoot { margin:10px 0 0; color:#91a9c2; font-size:10px; }
         .filingsEmpty { padding:18px; border:1px dashed #304963; border-radius:10px; color:#91a9c2; font-size:12px; }
         .filingTag { display:inline-flex; align-items:center; margin:5px 5px 0 0; padding:4px 7px; border:1px solid #7b6631; border-radius:6px; background:#3d3217; color:#ffdb78 !important; font-size:9px !important; font-weight:900 !important; letter-spacing:.35px; line-height:1.25; text-decoration:none; white-space:nowrap; }
         .filingTag:hover { border-color:#ffd36b; background:#59471b; color:#fff0bf !important; }
@@ -849,7 +847,7 @@ export default function Home() {
         .empty { height:220px; text-align:center; vertical-align:middle; color:#6c7c93; } .empty strong,.empty span { display:block; } .empty strong { color:#aebbd0; margin-bottom:6px; font-size:13px; } .empty span { font-size:10px; }
         .spinner { width:22px; height:22px; border:2px solid #26364d; border-top-color:#4d9cff; border-radius:50%; margin:0 auto 12px; animation:spin .8s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
         footer { display:flex; justify-content:space-between; margin-top:10px; padding:0 2px; color:#53647b; font-size:9px; }
-        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns { grid-template-columns:1fr; } .filingsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .filingsHead { align-items:flex-start; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
+        @media (max-width:900px) { .page { padding:16px; } .header,.toolbar,.deskHead,.openingHead { align-items:flex-start; flex-direction:column; } .headerRight { width:100%; justify-content:space-between; } .cards { grid-template-columns:repeat(2,1fr); } .searchBox { width:100%; } .selectorGrid,.deskGrid,.openingContext { grid-template-columns:1fr; } .openingColumns,.outlookGrid { grid-template-columns:1fr; } .filingsHead { align-items:flex-start; } .selectorHead { align-items:flex-start; flex-direction:column; } .selectorNote { white-space:normal; } .tableScroll { max-height:calc(100vh - 430px); } .evidenceStats { width:100%; grid-template-columns:repeat(2,1fr); } .detailGroup summary span { display:none; } }
       `}</style>
     </main>
   );
